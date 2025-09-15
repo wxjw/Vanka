@@ -1,0 +1,19 @@
+{
+  "templates": [
+    {
+      "key": "invoice",
+      "displayName": "Invoice 发票（VANKA）",
+      "file": "invoice_template_模板.docx"
+    },
+    {
+      "key": "confirmation_vanka",
+      "displayName": "预定信息确认函（万咖）",
+      "file": "预定信息确认函_模板_含字体#万咖.docx"
+    },
+    {
+      "key": "confirmation_duoji",
+      "displayName": "预定信息确认函（多吉）",
+      "file": "预定信息确认函模板_含字体#多吉.docx"
+    }
+  ]
+}

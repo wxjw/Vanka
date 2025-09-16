@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+  "github": {
+    "enabled": true,
+    "autoJobCancelation": true
+  }
+}

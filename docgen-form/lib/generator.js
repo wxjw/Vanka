@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
-import vm from 'node:vm';
+import {Script, createContext} from 'node:vm';
 import JSZip from 'jszip';
-import createReport from 'docx-templates';
+import docxTemplates from 'docx-templates';
 
 function toSafeString(value) {
   if (value == null) return '';
@@ -46,6 +46,20 @@ async function normalizeDocxDelimiters(docxBuffer) {
   }
   return Buffer.from(await zip.generateAsync({type:'nodebuffer'}));
 }
+
+const createReport =
+  typeof docxTemplates.createReport === 'function'
+    ? docxTemplates.createReport
+    : docxTemplates.default;
+
+const printable = value => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number' && !Number.isFinite(value)) return '';
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+  }
+  return String(value);
+};
 
 const helperFunctions = {
   c(value, fallback = '', ...rest) {
@@ -111,8 +125,8 @@ function evaluateSandbox({sandbox, ctx}) {
   }
 
   const source = typeof sandbox.__code__ === 'string' ? sandbox.__code__ : '';
-  const script = new vm.Script(source);
-  const context = vm.createContext(ensureHelper(sandbox));
+  const script = new Script(source);
+  const context = createContext(ensureHelper(sandbox));
   return {
     context,
     result: script.runInContext(context)
@@ -133,15 +147,16 @@ function createJsRuntime() {
 export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
-  const contextData = {...(payload || {})};
-  ensureHelper(contextData);
-  contextData.c = helperFunctions.c;
+
+  const data = {
+    ...(payload || {}),
+    c: (...args) => args.map(printable).join('')
+  };
 
   const out = await createReport({
     template: normalized,
-    data: contextData,
+    data,
     cmdDelimiter: ['{', '}'],
-    additionalJsContext: helperFunctions,
     runJs: createJsRuntime()
   });
   return Buffer.from(out);

@@ -1,234 +1,558 @@
 'use client';
-import {useEffect, useRef, useState} from 'react';
 
-let pdfWorkerConfigured = false;
+import {useMemo, useState} from 'react';
 
-async function loadPdfjs() {
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
-  if (typeof window !== 'undefined' && !pdfWorkerConfigured && pdfjsLib?.GlobalWorkerOptions) {
-    const version = pdfjsLib?.version || '3.11.174';
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.js`;
-    pdfWorkerConfigured = true;
-  }
-  return pdfjsLib;
-}
+const STAGES = {
+  FORM: 'form',
+  PREVIEW: 'preview',
+  STAMPED: 'stamped'
+};
 
-// Kept this helper function from the 'codex' branch for the docx fallback
-function downloadBlobAsDocx(blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'document.docx'; // It's good practice to provide a default filename
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+const FORM_FIELDS = [
+  {label: '收件人姓名', key: 'recipientName'},
+  {label: '确认单编号（项目编号）', key: 'referenceNo'},
+  {label: '出具日期', key: 'issueDate', type: 'date'},
+  {label: '定金支付截止日期', key: 'payByDate', type: 'date'},
+  {label: '定金金额（CNY）', key: 'payAmountCNY'},
+  {label: '大写金额', key: 'payAmountUppercase'},
+  {label: '联系人姓名', key: 'contactName'},
+  {label: '联系人电话', key: 'contactPhone'},
+  {label: '联系人邮箱', key: 'contactEmail'},
+  {label: '行程信息', key: 'itinerary', multiline: true},
+  {label: '限制信息', key: 'restrictions', multiline: true},
+  {label: '其他信息', key: 'others', multiline: true},
+  {label: '备注', key: 'remark', multiline: true}
+];
+
+const STAGE_LABELS = {
+  [STAGES.FORM]: '填写表单',
+  [STAGES.PREVIEW]: 'PDF 预览',
+  [STAGES.STAMPED]: '盖章与下载'
+};
+
+const DEFAULT_FORM = FORM_FIELDS.reduce((acc, field) => {
+  acc[field.key] = '';
+  return acc;
+}, {});
 
 export default function ConfirmationPage() {
-  const [brand, setBrand] = useState('vanka'); // vanka / duoji
-  const [form, setForm] = useState({
-    recipientName: '',
-    referenceNo: '',
-    issueDate: '',
-    payByDate: '',
-    payAmountCNY: '',
-    payAmountUppercase: '',
-    contactName: '',
-    contactPhone: '',
-    contactEmail: '',
-    itinerary: '',
-    restrictions: '',
-    others: '',
-    remark: ''
-  });
-  const [loading, setLoading] = useState(false);
+  const [brand, setBrand] = useState('vanka');
+  const [form, setForm] = useState(DEFAULT_FORM);
+  const [stage, setStage] = useState(STAGES.FORM);
+  const [previewPdf, setPreviewPdf] = useState(null);
+  const [stampedPdf, setStampedPdf] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
-  const [pdfPages, setPdfPages] = useState([]);
-  const pdfContainerRef = useRef(null);
-  const stampRef = useRef(null);
-  const dragOffsetRef = useRef({x: 0, y: 0});
-  const [stampPosition, setStampPosition] = useState({x: 32, y: 32});
-  const [draggingStamp, setDraggingStamp] = useState(false);
 
-  // Kept a single, clean version of onChange
-  const onChange = (key, value) => setForm(prev => ({...prev, [key]: value}));
+  const stageOrder = useMemo(() => [STAGES.FORM, STAGES.PREVIEW, STAGES.STAMPED], []);
 
-  // Kept a single, clean version of the drag-and-drop effect and handlers
-  useEffect(() => {
-    if (!draggingStamp) {
-      return undefined;
-    }
-
-    function handlePointerMove(event) {
-      if (!pdfContainerRef.current) return;
-      const containerRect = pdfContainerRef.current.getBoundingClientRect();
-      const stampEl = stampRef.current;
-      const stampWidth = stampEl?.offsetWidth || 0;
-      const stampHeight = stampEl?.offsetHeight || 0;
-      const nextX = event.clientX - containerRect.left - dragOffsetRef.current.x;
-      const nextY = event.clientY - containerRect.top - dragOffsetRef.current.y;
-
-      const clampedX = Math.max(0, Math.min(containerRect.width - stampWidth, nextX));
-      const clampedY = Math.max(0, Math.min(containerRect.height - stampHeight, nextY));
-      setStampPosition({x: clampedX, y: clampedY});
-    }
-
-    function handlePointerUp(event) {
-      if (stampRef.current?.releasePointerCapture) {
-        try {
-          stampRef.current.releasePointerCapture(event.pointerId);
-        } catch (err) {
-          // ignore release errors
-        }
-      }
-      setDraggingStamp(false);
-    }
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, [draggingStamp]);
-
-  const handleStampPointerDown = (event) => {
-    if (!pdfContainerRef.current) return;
-    const stampRect = event.currentTarget.getBoundingClientRect();
-    dragOffsetRef.current = {
-      x: event.clientX - stampRect.left,
-      y: event.clientY - stampRect.top
-    };
-    setDraggingStamp(true);
-    if (event.currentTarget.setPointerCapture) {
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      } catch (err) {
-        // ignore capture errors
-      }
-    }
-    event.preventDefault();
+  const onChange = (key, value) => {
+    setForm(prev => ({...prev, [key]: value}));
   };
 
-  // Merged logic for handleGenerate, preferring the version with the .docx fallback
-  async function handleGenerate(e) {
+  const updatePreviewPdf = blob => {
+    setPreviewPdf(prev => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      if (!blob) return null;
+      return {blob, url: URL.createObjectURL(blob)};
+    });
+  };
+
+  const updateStampedPdf = blob => {
+    setStampedPdf(prev => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      if (!blob) return null;
+      return {blob, url: URL.createObjectURL(blob)};
+    });
+  };
+
+  const handlePreview = async e => {
     e.preventDefault();
-
-    setLoading(true);
+    setIsGenerating(true);
     setError('');
-    setPdfPages([]);
-
-    const templateKey = brand === 'vanka' ? 'confirmation_vanka' : 'confirmation_duoji';
-    const data = {
-      收件人姓名: form.recipientName,
-      项目编号: form.referenceNo,
-      出具日期: form.issueDate,
-      定金支付截止日期: form.payByDate,
-      定金金额CNY: form.payAmountCNY,
-      大写金额: form.payAmountUppercase,
-      联系人姓名: form.contactName,
-      联系人电话: form.contactPhone,
-      联系人邮箱: form.contactEmail,
-      行程信息: form.itinerary,
-      限制信息: form.restrictions,
-      其他信息: form.others,
-      备注: form.remark
-    };
-
-    const meta = {
-      projectNo: form.referenceNo || 'NO',
-      issueDate: form.issueDate || 'DATE',
-      docTypeLabel: brand === 'vanka' ? '确认函-万咖' : '确认函-多吉'
-    };
-
-    const payload = {templateKey, data, meta};
-    let shouldFallbackToDocx = false;
-
     try {
-      let previewRes = null;
-      try {
-        previewRes = await fetch('/api/preview', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-      } catch (networkErr) {
-        shouldFallbackToDocx = true;
-      }
-
-      if (previewRes) {
-        if (!previewRes.ok) {
-          if (previewRes.status === 404) {
-            shouldFallbackToDocx = true;
-          } else {
-            const text = await previewRes.text().catch(() => '');
-            throw new Error(text || '生成失败');
-          }
-        } else {
-          const contentType = previewRes.headers.get('content-type') || '';
-          const blob = await previewRes.blob();
-          if (contentType.includes('pdf')) {
-            await renderPdfBlob(blob);
-            setStampPosition({x: 32, y: 32});
-          } else {
-            downloadBlobAsDocx(blob);
-          }
-          shouldFallbackToDocx = false;
-        }
-      }
-
-      if (shouldFallbackToDocx) {
-        const res = await fetch('/api/generate', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          throw new Error(text || '生成失败');
-        }
-
-        const blob = await res.blob();
-        downloadBlobAsDocx(blob);
-      }
+      const blob = await Promise.resolve(
+        generateConfirmationPdf({form, brand, withStamp: false})
+      );
+      updatePreviewPdf(blob);
+      updateStampedPdf(null);
+      setStage(STAGES.PREVIEW);
     } catch (err) {
       console.error(err);
-      const message = err?.message || '生成失败';
-      setError(message);
-      alert('生成失败：' + message);
+      setError('生成 PDF 预览失败，请稍后重试。');
     } finally {
-      setLoading(false);
+      setIsGenerating(false);
     }
+  };
+
+  const handleStamp = async () => {
+    if (!previewPdf?.blob) return;
+    setIsGenerating(true);
+    setError('');
+    try {
+      const blob = await Promise.resolve(
+        generateConfirmationPdf({form, brand, withStamp: true})
+      );
+      updateStampedPdf(blob);
+      setStage(STAGES.STAMPED);
+    } catch (err) {
+      console.error(err);
+      setError('盖章失败，请稍后重试。');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (!stampedPdf?.url) {
+      setError('请先完成盖章生成 PDF。');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = stampedPdf.url;
+    const docTypeLabel = brand === 'vanka' ? '确认函-万咖' : '确认函-多吉';
+    const issueDate = form.issueDate || new Date().toISOString().slice(0, 10);
+    const baseName = form.referenceNo?.trim() || 'confirmation';
+    link.download = `${baseName}_${docTypeLabel}_${issueDate}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const activePdfUrl = stage === STAGES.STAMPED ? stampedPdf?.url : previewPdf?.url;
+
+  return (
+    <main>
+      <h1>预定信息确认函</h1>
+
+      <section style={{margin: '16px 0 24px'}}>
+        <StepIndicator stageOrder={stageOrder} currentStage={stage} />
+      </section>
+
+      <div style={{margin: '12px 0', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center'}}>
+        <label htmlFor="brand-select" style={{fontWeight: 600}}>模板品牌：</label>
+        <select
+          id="brand-select"
+          value={brand}
+          onChange={e => {
+            setBrand(e.target.value);
+            if (stage !== STAGES.FORM) {
+              setStage(STAGES.FORM);
+              updatePreviewPdf(null);
+              updateStampedPdf(null);
+            }
+          }}
+          style={{padding: '8px 12px', fontSize: 16}}
+        >
+          <option value="vanka">万咖</option>
+          <option value="duoji">多吉</option>
+        </select>
+      </div>
+
+      <ErrorBanner message={error} />
+
+      {stage === STAGES.FORM && (
+        <form onSubmit={handlePreview} style={{maxWidth: 960}}>
+          {FORM_FIELDS.map(field => (
+            <FieldRow
+              key={field.key}
+              field={field}
+              value={form[field.key]}
+              onChange={onChange}
+            />
+          ))}
+
+          <div style={{marginTop: 24, display: 'flex', gap: 12}}>
+            <button
+              type="submit"
+              style={{padding: '12px 20px', fontSize: 16}}
+              disabled={isGenerating}
+            >
+              {isGenerating ? '生成中…' : '生成 PDF 预览'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {stage !== STAGES.FORM && (
+        <section style={{marginTop: 32}}>
+          <div style={{marginBottom: 16, color: '#444'}}>
+            {stage === STAGES.PREVIEW ? '请确认预览（尚未盖章）' : '以下为已盖章的正式 PDF'}
+          </div>
+
+          <div style={{border: '1px solid #d0d7de', borderRadius: 6, overflow: 'hidden', background: '#fafafa'}}>
+            {activePdfUrl ? (
+              <iframe
+                title="confirmation-preview"
+                src={activePdfUrl}
+                style={{width: '100%', minHeight: 720, border: 'none'}}
+              />
+            ) : (
+              <div style={{padding: '48px 24px', textAlign: 'center', color: '#666'}}>
+                暂无预览内容
+              </div>
+            )}
+          </div>
+
+          <div style={{marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap'}}>
+            <button
+              type="button"
+              onClick={() => {
+                setStage(STAGES.FORM);
+                setError('');
+              }}
+              style={{padding: '10px 18px', fontSize: 15}}
+              disabled={isGenerating}
+            >
+              返回表单编辑
+            </button>
+
+            {stage === STAGES.PREVIEW && (
+              <button
+                type="button"
+                onClick={handleStamp}
+                style={{padding: '10px 18px', fontSize: 15}}
+                disabled={isGenerating}
+              >
+                {isGenerating ? '盖章中…' : '盖章'}
+              </button>
+            )}
+
+            {stage === STAGES.STAMPED && (
+              <button
+                type="button"
+                onClick={handleDownload}
+                style={{padding: '10px 18px', fontSize: 15}}
+                disabled={isGenerating}
+              >
+                下载 PDF
+              </button>
+            )}
+
+            {stage === STAGES.STAMPED && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStage(STAGES.PREVIEW);
+                  setError('');
+                }}
+                style={{padding: '10px 18px', fontSize: 15}}
+                disabled={isGenerating}
+              >
+                返回预览
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function FieldRow({field, value, onChange}) {
+  const isTextarea = Boolean(field.multiline);
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '260px 1fr',
+        gap: 12,
+        alignItems: isTextarea ? 'start' : 'center',
+        marginBottom: 14
+      }}
+    >
+      <label style={{fontWeight: 600}} htmlFor={`field-${field.key}`}>
+        {field.label}
+      </label>
+      {isTextarea ? (
+        <textarea
+          id={`field-${field.key}`}
+          rows={5}
+          style={{width: '100%', fontSize: 14, padding: 8, resize: 'vertical'}}
+          value={value}
+          onChange={e => onChange(field.key, e.target.value)}
+        />
+      ) : (
+        <input
+          id={`field-${field.key}`}
+          type={field.type || 'text'}
+          style={{width: '100%', fontSize: 14, padding: 8}}
+          value={value}
+          onChange={e => onChange(field.key, e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ErrorBanner({message}) {
+  if (!message) return null;
+
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      style={{
+        margin: '16px 0',
+        padding: '12px 16px',
+        border: '1px solid #f5c2c7',
+        background: '#f8d7da',
+        color: '#842029',
+        borderRadius: 6,
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12
+      }}
+    >
+      <span style={{fontWeight: 700}}>提示</span>
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function StepIndicator({stageOrder, currentStage}) {
+  return (
+    <ol
+      style={{
+        listStyle: 'none',
+        display: 'flex',
+        gap: 20,
+        padding: 0,
+        margin: 0,
+        flexWrap: 'wrap'
+      }}
+    >
+      {stageOrder.map((stage, index) => {
+        const active = stage === currentStage;
+        return (
+          <li key={stage} style={{display: 'flex', alignItems: 'center', gap: 8}}>
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: active ? '#2563eb' : '#e2e8f0',
+                color: active ? '#fff' : '#1f2937',
+                fontWeight: 600
+              }}
+            >
+              {index + 1}
+            </span>
+            <span style={{fontWeight: active ? 700 : 500, color: active ? '#1d4ed8' : '#475569'}}>
+              {STAGE_LABELS[stage]}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function generateConfirmationPdf({form, brand, withStamp}) {
+  if (typeof document === 'undefined') {
+    throw new Error('PDF 生成仅在浏览器中可用');
+  }
+  const {canvas} = createConfirmationCanvas({form, brand, withStamp});
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  const jpegBytes = dataUrlToUint8Array(dataUrl);
+  const pdfBytes = buildPdfFromJpeg(jpegBytes, canvas.width, canvas.height);
+  return new Blob([pdfBytes], {type: 'application/pdf'});
+}
+
+function createConfirmationCanvas({form, brand, withStamp}) {
+  const width = 1240;
+  const height = 1754;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.save();
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#111827';
+  ctx.font = 'bold 54px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+  ctx.fillText('预定信息确认函', 100, 90);
+
+  ctx.font = '26px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+  ctx.fillStyle = '#334155';
+  ctx.fillText(`品牌：${brand === 'vanka' ? '万咖' : '多吉'}`, 100, 168);
+  const issueDate = form.issueDate || new Date().toISOString().slice(0, 10);
+  ctx.fillText(`出具日期：${issueDate}`, 100, 206);
+  ctx.fillText(`定金截止：${form.payByDate || '待填写'}`, 100, 244);
+
+  let cursorY = 300;
+  const labelX = 100;
+  const valueX = 440;
+  const valueWidth = width - valueX - 120;
+  const lineHeight = 42;
+
+  FORM_FIELDS.forEach(field => {
+    const displayLabel = field.label;
+    const rawValue = form[field.key]?.trim() || '';
+    const safeValue = rawValue || '—';
+
+    ctx.font = 'bold 28px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+    ctx.fillStyle = '#1f2937';
+    ctx.fillText(displayLabel, labelX, cursorY);
+
+    ctx.font = '28px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+    ctx.fillStyle = '#111827';
+    const lines = wrapMultilineText(ctx, safeValue, valueWidth);
+    const linesToDraw = lines.length === 0 ? ['—'] : lines;
+
+    linesToDraw.forEach((line, idx) => {
+      ctx.fillText(line, valueX, cursorY + idx * lineHeight);
+    });
+
+    const consumedLines = Math.max(linesToDraw.length, 1);
+    cursorY += consumedLines * lineHeight + (field.multiline ? 28 : 18);
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(labelX, cursorY - 10);
+    ctx.lineTo(width - 100, cursorY - 10);
+    ctx.stroke();
+  });
+
+  ctx.font = '24px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+  ctx.fillStyle = '#475569';
+  ctx.fillText('确认函生成于系统，盖章后生效。', 100, height - 200);
+
+  ctx.restore();
+
+  if (withStamp) {
+    drawStamp(ctx, width, height, brand);
   }
 
-  async function renderPdfBlob(blob) {
-    const arrayBuffer = await blob.arrayBuffer();
-    const pdfjsLib = await loadPdfjs();
-    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-    const pages = [];
+  return {canvas};
+}
 
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-      const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({scale: 1.4});
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-      await page.render({canvasContext: context, viewport}).promise;
-      pages.push({
-        pageNumber: pageNum,
-        width: canvas.width,
-        height: canvas.height,
-        dataUrl: canvas.toDataURL('image/png')
-      });
+function drawStamp(ctx, width, height, brand) {
+  const centerX = width - 280;
+  const centerY = height - 320;
+  const radius = 150;
+
+  ctx.save();
+  ctx.strokeStyle = '#d32f2f';
+  ctx.fillStyle = '#d32f2f';
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 52px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+  ctx.fillText(brand === 'vanka' ? '万咖旅行' : '多吉旅行', centerX, centerY - 18);
+  ctx.font = '32px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
+  ctx.fillText('确认专用章', centerX, centerY + 46);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+function wrapMultilineText(ctx, text, maxWidth) {
+  const sanitized = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const paragraphs = sanitized.split('\n');
+  const lines = [];
+
+  paragraphs.forEach(para => {
+    if (para === '') {
+      lines.push('');
+      return;
     }
+    let current = '';
+    for (const char of Array.from(para)) {
+      const next = current + char;
+      if (ctx.measureText(next).width > maxWidth && current) {
+        lines.push(current);
+        current = char;
+      } else {
+        current = next;
+      }
+    }
+    if (current) {
+      lines.push(current);
+    }
+  });
 
-    setPdfPages(pages);
+  return lines;
+}
+
+function dataUrlToUint8Array(dataUrl) {
+  const base64 = dataUrl.split(',')[1];
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
   }
-  
-  // The rest of your JSX remains the same...
-  // ...
+  return bytes;
+}
+
+function buildPdfFromJpeg(jpegBytes, widthPx, heightPx) {
+  const encoder = new TextEncoder();
+  const pdfWidth = 595.28; // A4 width in points
+  const pdfHeight = (pdfWidth * heightPx) / widthPx;
+
+  const chunks = [];
+  let offset = 0;
+  const offsets = [0];
+
+  const push = chunk => {
+    const bytes = typeof chunk === 'string' ? encoder.encode(chunk) : chunk;
+    chunks.push(bytes);
+    offset += bytes.length;
+  };
+
+  const writeObject = (id, parts) => {
+    offsets[id] = offset;
+    push(`${id} 0 obj\n`);
+    parts.forEach(push);
+    push('endobj\n');
+  };
+
+  push('%PDF-1.3\n');
+  writeObject(1, ['<< /Type /Catalog /Pages 2 0 R >>\n']);
+  writeObject(2, ['<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n']);
+
+  const pageDict = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pdfWidth.toFixed(2)} ${pdfHeight.toFixed(2)}] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> /ProcSet [/PDF /ImageC] >> >>\n`;
+  writeObject(3, [pageDict]);
+
+  const contentStream = `q\n${pdfWidth.toFixed(2)} 0 0 ${pdfHeight.toFixed(2)} 0 0 cm\n/Im0 Do\nQ\n`;
+  const contentBytes = encoder.encode(contentStream);
+  writeObject(4, [
+    `<< /Length ${contentBytes.length} >>\nstream\n`,
+    contentBytes,
+    '\nendstream\n'
+  ]);
+
+  writeObject(5, [
+    `<< /Type /XObject /Subtype /Image /Name /Im0 /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`,
+    jpegBytes,
+    '\nendstream\n'
+  ]);
+
+  const xrefOffset = offset;
+  const totalObjects = 5;
+  push(`xref\n0 ${totalObjects + 1}\n`);
+  push('0000000000 65535 f \n');
+  for (let i = 1; i <= totalObjects; i += 1) {
+    push(`${offsets[i].toString().padStart(10, '0')} 00000 n \n`);
+  }
+  push(`trailer\n<< /Size ${totalObjects + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`);
+
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const pdfBytes = new Uint8Array(totalLength);
+  let pointer = 0;
+  chunks.forEach(chunk => {
+    pdfBytes.set(chunk, pointer);
+    pointer += chunk.length;
+  });
+
+  return pdfBytes;
 }

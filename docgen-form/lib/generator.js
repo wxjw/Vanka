@@ -46,23 +46,31 @@ async function normalizeDocxDelimiters(docxBuffer) {
   return Buffer.from(await zip.generateAsync({type:'nodebuffer'}));
 }
 
+const helperFunctions = {
+  c(value, fallback = '', ...rest) {
+    const base = toSafeString(
+      value == null || value === '' ? fallback : value
+    );
+    if (!rest.length) return base;
+    const tail = rest.map(part => toSafeString(part)).join('');
+    return `${base}${tail}`;
+  }
+};
+
 export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
+  const contextData = {...(payload || {})};
+
+  if (typeof contextData.c !== 'function') {
+    contextData.c = helperFunctions.c;
+  }
+
   const out = await createReport({
     template: normalized,
-    data: payload || {},
+    data: contextData,
     cmdDelimiter: ['{', '}'],
-    additionalJsContext: {
-      c(value, fallback = '', ...rest) {
-        const base = toSafeString(
-          value == null || value === '' ? fallback : value
-        );
-        if (!rest.length) return base;
-        const tail = rest.map(part => toSafeString(part)).join('');
-        return `${base}${tail}`;
-      }
-    }
+    additionalJsContext: helperFunctions
   });
   return Buffer.from(out);
 }

@@ -36,6 +36,7 @@ export default function InvoicePage() {
       'XXX-YYYYMM-XXX': form.invoiceNo,
       'YYYY-MM-DD': form.dateOfIssue,
       幣別: form.currency,
+      付款期限: form.paymentDue,
       項目負責人: `${form.projectLead_name}｜${form.projectLead_phone}｜${form.projectLead_email}`,
       填寫項目: form.description,
       數量1: form.qty,

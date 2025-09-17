@@ -13,6 +13,18 @@ docker run --rm -p 3000:3000 `
   docgen:latest
 ```
 
+如果是在 Linux shell（如 bash、zsh）中运行，请使用 POSIX 语法：
+
+```bash
+docker build -t docgen:latest .
+
+docker run --rm -p 3000:3000 \
+  -v "$(pwd)/templates:/app/templates:ro" \
+  -v "$(pwd)/templates.config.json:/app/templates.config.json:ro" \
+  -v "$(pwd)/seals:/app/seals:ro" \
+  docgen:latest
+```
+
 打开 http://localhost:3000
 
 ## 开发（无需 Docker）

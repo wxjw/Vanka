@@ -88,6 +88,7 @@ function evaluateSandbox({sandbox, ctx}) {
 function createJsRuntime() {
   return ({sandbox, ctx}) => {
     const {context, result} = evaluateSandbox({sandbox, ctx});
+    ensureHelper(context);
     const wrapped = Promise.resolve(result).finally(() => {
       ensureHelper(context);
     });

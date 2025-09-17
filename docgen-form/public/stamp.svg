@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <style>
+      .outline { fill: none; stroke: #c62828; stroke-width: 8; }
+      .text-main { font: bold 32px 'Arial', sans-serif; letter-spacing: 4px; fill: #c62828; }
+      .text-sub { font: 16px 'Arial', sans-serif; letter-spacing: 2px; fill: #c62828; }
+    </style>
+  </defs>
+  <circle class="outline" cx="100" cy="100" r="88" />
+  <circle class="outline" cx="100" cy="100" r="70" stroke-dasharray="12 12" />
+  <g text-anchor="middle">
+    <text class="text-main" x="100" y="105">VANKA</text>
+    <text class="text-sub" x="100" y="135">CONFIRMED</text>
+  </g>
+</svg>

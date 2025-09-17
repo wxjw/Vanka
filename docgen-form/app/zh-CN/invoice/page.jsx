@@ -1,5 +1,6 @@
 'use client';
 import {useState} from 'react';
+// 假设你的CSS Modules文件路径是正确的
 import styles from '../formStyles.module.css';
 
 export default function InvoicePage() {
@@ -56,29 +57,35 @@ export default function InvoicePage() {
       docTypeLabel: '发票'
     };
 
-    const res = await fetch('/api/generate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({templateKey: 'invoice', data, meta})
-    });
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({templateKey: 'invoice', data, meta})
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      alert('生成失败：' + text);
-      return;
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        // 使用 throw new Error 会更规范，但 alert 也能工作
+        throw new Error(text || '生成失败');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${meta.projectNo || 'invoice'}.docx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('生成文档时出错:', err);
+      alert('生成失败：' + err.message);
     }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${meta.projectNo || 'invoice'}.docx`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
   }
 
+  // 渲染表单字段的辅助函数
   const renderField = (label, key, type = 'text', placeholder = '') => (
     <div className={styles.field}>
       <label className={styles.fieldLabel}>{label}</label>
@@ -102,6 +109,7 @@ export default function InvoicePage() {
     </div>
   );
 
+  // 渲染预览区域行的辅助函数
   const previewRow = (label, value) => {
     const display = value == null ? '' : typeof value === 'string' ? value : String(value);
     const content = display.trim() ? display : '—';
@@ -113,6 +121,7 @@ export default function InvoicePage() {
     );
   };
 
+  // 汇总项目负责人的信息
   const projectLead = [form.projectLead_name, form.projectLead_phone, form.projectLead_email]
     .filter(Boolean)
     .join(' ｜ ');
@@ -134,7 +143,7 @@ export default function InvoicePage() {
             {renderField('发票编号（项目编号）', 'invoiceNo', 'text', '例如：INV-2024-001')}
             {renderField('开立日期', 'dateOfIssue', 'date')}
             {renderField('付款期限', 'paymentDue', 'date')}
-            {renderField('币别（SGD/CNY/USD/EUR）', 'currency')}
+            {renderField('币别（SGD/CNY/USD/EUR）', 'currency', 'text', 'SGD')}
           </section>
 
           <section className={styles.fieldGrid}>

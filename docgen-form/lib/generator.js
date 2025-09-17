@@ -1,4 +1,5 @@
 import {readFile} from 'node:fs/promises';
+import vm from 'node:vm';
 import JSZip from 'jszip';
 import createReport from 'docx-templates';
 
@@ -57,6 +58,43 @@ const helperFunctions = {
   }
 };
 
+function ensureHelper(target) {
+  if (!target || typeof target !== 'object') return target;
+  if (typeof target.c !== 'function') {
+    target.c = helperFunctions.c;
+  }
+  return target;
+}
+
+function evaluateSandbox({sandbox, ctx}) {
+  if (ctx?.options?.noSandbox) {
+    const context = ensureHelper(sandbox);
+    const wrapper = new Function('with(this) { return eval(__code__); }');
+    return {
+      context,
+      result: wrapper.call(context)
+    };
+  }
+
+  const source = typeof sandbox.__code__ === 'string' ? sandbox.__code__ : '';
+  const script = new vm.Script(source);
+  const context = vm.createContext(ensureHelper(sandbox));
+  return {
+    context,
+    result: script.runInContext(context)
+  };
+}
+
+function createJsRuntime() {
+  return ({sandbox, ctx}) => {
+    const {context, result} = evaluateSandbox({sandbox, ctx});
+    const wrapped = Promise.resolve(result).finally(() => {
+      ensureHelper(context);
+    });
+    return {modifiedSandbox: context, result: wrapped};
+  };
+}
+
 export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
@@ -70,7 +108,8 @@ export async function generateDocxBuffer({templatePath, payload}) {
     template: normalized,
     data: contextData,
     cmdDelimiter: ['{', '}'],
-    additionalJsContext: helperFunctions
+    additionalJsContext: helperFunctions,
+    runJs: createJsRuntime()
   });
   return Buffer.from(out);
 }

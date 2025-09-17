@@ -66,7 +66,7 @@ export default function InvoicePage() {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        // 使用 throw new Error 会更规范，但 alert 也能工作
+        // 使用 throw new Error 会更规范
         throw new Error(text || '生成失败');
       }
 

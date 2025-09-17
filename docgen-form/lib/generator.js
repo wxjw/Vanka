@@ -2,6 +2,28 @@ import {readFile} from 'node:fs/promises';
 import JSZip from 'jszip';
 import createReport from 'docx-templates';
 
+function toSafeString(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : '';
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (Array.isArray(value)) {
+    return value.map(toSafeString).join('');
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch (err) {
+      return '';
+    }
+  }
+  return String(value);
+}
+
 function convertSquareToCurly(xml) {
   let s = xml;
   s = s.replace(/\[\s*#\s*([A-Za-z0-9_.]+)\s*\]/g, '{#$1}');
@@ -27,6 +49,20 @@ async function normalizeDocxDelimiters(docxBuffer) {
 export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
-  const out = await createReport({ template: normalized, data: payload || {} });
+  const out = await createReport({
+    template: normalized,
+    data: payload || {},
+    cmdDelimiter: ['{', '}'],
+    additionalJsContext: {
+      c(value, fallback = '', ...rest) {
+        const base = toSafeString(
+          value == null || value === '' ? fallback : value
+        );
+        if (!rest.length) return base;
+        const tail = rest.map(part => toSafeString(part)).join('');
+        return `${base}${tail}`;
+      }
+    }
+  });
   return Buffer.from(out);
 }

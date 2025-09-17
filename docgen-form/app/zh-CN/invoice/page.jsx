@@ -1,5 +1,7 @@
 'use client';
 import {useState} from 'react';
+// 假设你的CSS Modules文件路径是正确的
+import styles from '../formStyles.module.css';
 
 export default function InvoicePage() {
   const [form, setForm] = useState({
@@ -24,10 +26,10 @@ export default function InvoicePage() {
     total: ''
   });
 
-  const onChange = (k, v) => setForm(prev => ({...prev, [k]: v}));
+  const onChange = (key, value) => setForm(prev => ({...prev, [key]: value}));
 
-  async function handleGenerate(e) {
-    e.preventDefault();
+  async function handleGenerate(event) {
+    event.preventDefault();
 
     const data = {
       客戶姓名或公司全稱: form.clientName,
@@ -35,6 +37,7 @@ export default function InvoicePage() {
       'XXX-YYYYMM-XXX': form.invoiceNo,
       'YYYY-MM-DD': form.dateOfIssue,
       幣別: form.currency,
+      付款期限: form.paymentDue,
       項目負責人: `${form.projectLead_name}｜${form.projectLead_phone}｜${form.projectLead_email}`,
       填寫項目: form.description,
       數量1: form.qty,
@@ -54,141 +57,162 @@ export default function InvoicePage() {
       docTypeLabel: '发票'
     };
 
-    const res = await fetch('/api/generate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ templateKey: 'invoice', data, meta })
-    });
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({templateKey: 'invoice', data, meta})
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(()=> '');
-      alert('生成失败：' + text);
-      return;
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        // 使用 throw new Error 会更规范，但 alert 也能工作
+        throw new Error(text || '生成失败');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${meta.projectNo || 'invoice'}.docx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('生成文档时出错:', err);
+      alert('生成失败：' + err.message);
     }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   }
 
-  const row = (label, key, type='text') => (
-    <div style={{display:'grid', gridTemplateColumns:'140px 1fr', gap:12, alignItems:'center', marginBottom:12}}>
-      <label style={{fontWeight:500}}>{label}</label>
+  // 渲染表单字段的辅助函数
+  const renderField = (label, key, type = 'text', placeholder = '') => (
+    <div className={styles.field}>
+      <label className={styles.fieldLabel}>{label}</label>
       {type === 'textarea' ? (
         <textarea
-          value={form[key]} onChange={e=>onChange(key, e.target.value)}
-          rows={4} style={{width:'100%', fontSize:14, padding:8, borderRadius:6, border:'1px solid #d0d7de'}}
+          className={styles.textControl}
+          rows={4}
+          placeholder={placeholder}
+          value={form[key]}
+          onChange={event => onChange(key, event.target.value)}
         />
       ) : (
         <input
-          type={type} value={form[key]} onChange={e=>onChange(key, e.target.value)}
-          style={{width:'100%', fontSize:14, padding:8, borderRadius:6, border:'1px solid #d0d7de'}}
+          className={styles.textControl}
+          type={type}
+          placeholder={placeholder}
+          value={form[key]}
+          onChange={event => onChange(key, event.target.value)}
         />
       )}
     </div>
   );
 
+  // 渲染预览区域行的辅助函数
   const previewRow = (label, value) => {
     const display = value == null ? '' : typeof value === 'string' ? value : String(value);
     const content = display.trim() ? display : '—';
     return (
-      <div style={{display:'grid', gridTemplateColumns:'120px 1fr', gap:12, marginBottom:12}}>
-        <div style={{color:'#6a737d'}}>{label}</div>
-        <div style={{whiteSpace:'pre-wrap', wordBreak:'break-word'}}>{content}</div>
+      <div className={styles.previewItem}>
+        <div className={styles.previewLabel}>{label}</div>
+        <div className={styles.previewValue}>{content}</div>
       </div>
     );
   };
 
+  // 汇总项目负责人的信息
   const projectLead = [form.projectLead_name, form.projectLead_phone, form.projectLead_email]
     .filter(Boolean)
     .join(' ｜ ');
 
   return (
-    <main style={{paddingBottom:32}}>
-      <h1>发票（Invoice）</h1>
-      <div style={{display:'flex', gap:24, alignItems:'flex-start', flexWrap:'wrap'}}>
-        <form
-          onSubmit={handleGenerate}
-          style={{flex:'1 1 360px', minWidth:320, maxWidth:560, background:'#fff', padding:24, borderRadius:12, border:'1px solid #e4e7eb', boxShadow:'0 8px 24px rgba(15,23,42,0.05)'}}
-        >
-          <h3 style={{marginTop:0}}>基本信息</h3>
-          {row('客户姓名/公司', 'clientName')}
-          {row('联系方式', 'contactInfo')}
-          {row('发票编号（项目编号）', 'invoiceNo')}
-          {row('开立日期', 'dateOfIssue', 'date')}
-          {row('付款期限', 'paymentDue', 'date')}
-          {row('币别（SGD/CNY/USD/EUR）', 'currency')}
+    <main className={styles.page}>
+      <h1 className={styles.heading}>发票（Invoice）</h1>
 
-          <h3>项目负责人</h3>
-          {row('姓名', 'projectLead_name')}
-          {row('电话', 'projectLead_phone')}
-          {row('邮箱', 'projectLead_email')}
+      <div className={styles.layout}>
+        <form onSubmit={handleGenerate} className={`${styles.card} ${styles.formCard}`}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>填写发票信息</h2>
+            <p className={styles.sectionHint}>按顺序补齐客户、负责人及费用明细，右侧实时预览内容。</p>
+          </div>
 
-          <h3>项目与金额</h3>
-          {row('项目（描述）', 'description', 'textarea')}
-          {row('数量', 'qty')}
-          {row('单价', 'unitPrice')}
-          {row('金额', 'amount')}
-          {row('单价合计', 'unitPriceTotal')}
-          {row('金额合计', 'amountTotal')}
-          {row('行程与服务详情日期', 'serviceDetailDate')}
-          {row('费用包含', 'feeInclude', 'textarea')}
-          {row('费用不含', 'feeExclude', 'textarea')}
-          {row('总计', 'total')}
+          <section className={styles.fieldGrid}>
+            {renderField('客户姓名/公司', 'clientName', 'text', '如：Vanka Travel Pte. Ltd.')}
+            {renderField('联系方式', 'contactInfo', 'text', '电话或邮箱')}
+            {renderField('发票编号（项目编号）', 'invoiceNo', 'text', '例如：INV-2024-001')}
+            {renderField('开立日期', 'dateOfIssue', 'date')}
+            {renderField('付款期限', 'paymentDue', 'date')}
+            {renderField('币别（SGD/CNY/USD/EUR）', 'currency', 'text', 'SGD')}
+          </section>
 
-          <div style={{marginTop:24}}>
-            <button
-              type="submit"
-              style={{padding:'12px 20px', fontSize:16, borderRadius:8, backgroundColor:'#2563eb', color:'#fff', border:'none', cursor:'pointer'}}
-            >
+          <section className={styles.fieldGrid}>
+            <h3 className={styles.previewSectionTitle}>项目负责人</h3>
+            {renderField('姓名', 'projectLead_name')}
+            {renderField('电话', 'projectLead_phone')}
+            {renderField('邮箱', 'projectLead_email', 'email')}
+          </section>
+
+          <section className={styles.fieldGrid}>
+            <h3 className={styles.previewSectionTitle}>项目与金额</h3>
+            {renderField('项目（描述）', 'description', 'textarea', '填写服务内容、项目范围等')}
+            {renderField('数量', 'qty', 'text', '例如：1')}
+            {renderField('单价', 'unitPrice', 'text', '例如：3000')}
+            {renderField('金额', 'amount', 'text')}
+            {renderField('单价合计', 'unitPriceTotal', 'text')}
+            {renderField('金额合计', 'amountTotal', 'text')}
+            {renderField('行程与服务详情日期', 'serviceDetailDate', 'text', '例如：2024/08/18-2024/08/21')}
+            {renderField('费用包含', 'feeInclude', 'textarea')}
+            {renderField('费用不含', 'feeExclude', 'textarea')}
+            {renderField('总计', 'total', 'text', '例如：SGD 3,000.00')}
+          </section>
+
+          <div className={styles.buttonRow}>
+            <button type="submit" className={styles.primaryButton}>
               生成 DOCX
             </button>
           </div>
         </form>
 
-        <aside
-          style={{flex:'1 1 300px', minWidth:280, background:'#f8fafc', padding:24, borderRadius:12, border:'1px solid #e2e8f0', boxShadow:'inset 0 0 0 1px rgba(148,163,184,0.15)'}}
-        >
-          <h2 style={{marginTop:0, fontSize:20}}>即时预览</h2>
-          <p style={{marginTop:4, marginBottom:24, color:'#64748b'}}>填写内容会实时显示在右侧，方便核对信息。</p>
+        <aside className={`${styles.card} ${styles.previewCard}`}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>即时预览</h2>
+            <p className={styles.sectionHint}>生成前快速复核重要金额与项目内容。</p>
+          </div>
 
-          <section style={{marginBottom:24}}>
-            <h3 style={{fontSize:16, marginBottom:12}}>基本信息</h3>
-            {previewRow('客户姓名/公司', form.clientName)}
-            {previewRow('联系方式', form.contactInfo)}
-            {previewRow('发票编号', form.invoiceNo)}
-            {previewRow('开立日期', form.dateOfIssue)}
-            {previewRow('付款期限', form.paymentDue)}
-            {previewRow('币别', form.currency)}
-          </section>
+          <div className={styles.previewGroup}>
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>基本信息</h3>
+              {previewRow('客户姓名/公司', form.clientName)}
+              {previewRow('联系方式', form.contactInfo)}
+              {previewRow('发票编号', form.invoiceNo)}
+              {previewRow('开立日期', form.dateOfIssue)}
+              {previewRow('付款期限', form.paymentDue)}
+              {previewRow('币别', form.currency)}
+            </section>
 
-          <section style={{marginBottom:24}}>
-            <h3 style={{fontSize:16, marginBottom:12}}>项目负责人</h3>
-            {previewRow('姓名', form.projectLead_name)}
-            {previewRow('电话', form.projectLead_phone)}
-            {previewRow('邮箱', form.projectLead_email)}
-            {previewRow('信息汇总', projectLead)}
-          </section>
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>项目负责人</h3>
+              {previewRow('姓名', form.projectLead_name)}
+              {previewRow('电话', form.projectLead_phone)}
+              {previewRow('邮箱', form.projectLead_email)}
+              {previewRow('信息汇总', projectLead)}
+            </section>
 
-          <section>
-            <h3 style={{fontSize:16, marginBottom:12}}>项目与金额</h3>
-            {previewRow('项目描述', form.description)}
-            {previewRow('数量', form.qty)}
-            {previewRow('单价', form.unitPrice)}
-            {previewRow('金额', form.amount)}
-            {previewRow('单价合计', form.unitPriceTotal)}
-            {previewRow('金额合计', form.amountTotal)}
-            {previewRow('服务日期', form.serviceDetailDate)}
-            {previewRow('费用包含', form.feeInclude)}
-            {previewRow('费用不含', form.feeExclude)}
-            {previewRow('总计', form.total)}
-          </section>
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>项目与金额</h3>
+              {previewRow('项目描述', form.description)}
+              {previewRow('数量', form.qty)}
+              {previewRow('单价', form.unitPrice)}
+              {previewRow('金额', form.amount)}
+              {previewRow('单价合计', form.unitPriceTotal)}
+              {previewRow('金额合计', form.amountTotal)}
+              {previewRow('服务日期', form.serviceDetailDate)}
+              {previewRow('费用包含', form.feeInclude)}
+              {previewRow('费用不含', form.feeExclude)}
+              {previewRow('总计', form.total)}
+            </section>
+          </div>
         </aside>
       </div>
     </main>

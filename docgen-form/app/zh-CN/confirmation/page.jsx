@@ -2,12 +2,14 @@
 
 import {useMemo, useState} from 'react';
 
+// 定义流程的各个阶段
 const STAGES = {
-  FORM: 'form',
-  PREVIEW: 'preview',
-  STAMPED: 'stamped'
+  FORM: 'form', // 表单填写阶段
+  PREVIEW: 'preview', // 预览阶段
+  STAMPED: 'stamped' // 盖章后阶段
 };
 
+// 定义表单的所有字段
 const FORM_FIELDS = [
   {label: '收件人姓名', key: 'recipientName'},
   {label: '确认单编号（项目编号）', key: 'referenceNo'},
@@ -24,40 +26,47 @@ const FORM_FIELDS = [
   {label: '备注', key: 'remark', multiline: true}
 ];
 
+// 阶段对应的显示文本
 const STAGE_LABELS = {
   [STAGES.FORM]: '填写表单',
   [STAGES.PREVIEW]: 'PDF 预览',
   [STAGES.STAMPED]: '盖章与下载'
 };
 
+// 根据字段定义生成一个空的表单初始状态
 const DEFAULT_FORM = FORM_FIELDS.reduce((acc, field) => {
   acc[field.key] = '';
   return acc;
 }, {});
 
+// 主页面组件
 export default function ConfirmationPage() {
-  const [brand, setBrand] = useState('vanka');
-  const [form, setForm] = useState(DEFAULT_FORM);
-  const [stage, setStage] = useState(STAGES.FORM);
-  const [previewPdf, setPreviewPdf] = useState(null);
-  const [stampedPdf, setStampedPdf] = useState(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState('');
+  const [brand, setBrand] = useState('vanka'); // 品牌状态
+  const [form, setForm] = useState(DEFAULT_FORM); // 表单数据状态
+  const [stage, setStage] = useState(STAGES.FORM); // 当前阶段状态
+  const [previewPdf, setPreviewPdf] = useState(null); // 预览PDF文件状态
+  const [stampedPdf, setStampedPdf] = useState(null); // 盖章后PDF文件状态
+  const [isGenerating, setIsGenerating] = useState(false); // 是否正在生成中
+  const [error, setError] = useState(''); // 错误信息
 
+  // 步骤条的顺序
   const stageOrder = useMemo(() => [STAGES.FORM, STAGES.PREVIEW, STAGES.STAMPED], []);
 
+  // 更新表单字段
   const onChange = (key, value) => {
     setForm(prev => ({...prev, [key]: value}));
   };
 
+  // 更新预览PDF，并管理Blob URL的创建和销毁
   const updatePreviewPdf = blob => {
     setPreviewPdf(prev => {
-      if (prev?.url) URL.revokeObjectURL(prev.url);
+      if (prev?.url) URL.revokeObjectURL(prev.url); // 销毁旧的URL以防内存泄漏
       if (!blob) return null;
       return {blob, url: URL.createObjectURL(blob)};
     });
   };
 
+  // 更新盖章后PDF，逻辑同上
   const updateStampedPdf = blob => {
     setStampedPdf(prev => {
       if (prev?.url) URL.revokeObjectURL(prev.url);
@@ -66,6 +75,7 @@ export default function ConfirmationPage() {
     });
   };
 
+  // 处理生成预览的事件
   const handlePreview = async e => {
     e.preventDefault();
     setIsGenerating(true);
@@ -75,8 +85,8 @@ export default function ConfirmationPage() {
         generateConfirmationPdf({form, brand, withStamp: false})
       );
       updatePreviewPdf(blob);
-      updateStampedPdf(null);
-      setStage(STAGES.PREVIEW);
+      updateStampedPdf(null); // 清空旧的盖章文件
+      setStage(STAGES.PREVIEW); // 进入预览阶段
     } catch (err) {
       console.error(err);
       setError('生成 PDF 预览失败，请稍后重试。');
@@ -85,6 +95,7 @@ export default function ConfirmationPage() {
     }
   };
 
+  // 处理盖章的事件
   const handleStamp = async () => {
     if (!previewPdf?.blob) return;
     setIsGenerating(true);
@@ -94,7 +105,7 @@ export default function ConfirmationPage() {
         generateConfirmationPdf({form, brand, withStamp: true})
       );
       updateStampedPdf(blob);
-      setStage(STAGES.STAMPED);
+      setStage(STAGES.STAMPED); // 进入盖章阶段
     } catch (err) {
       console.error(err);
       setError('盖章失败，请稍后重试。');
@@ -103,6 +114,7 @@ export default function ConfirmationPage() {
     }
   };
 
+  // 处理下载的事件
   const handleDownload = () => {
     if (!stampedPdf?.url) {
       setError('请先完成盖章生成 PDF。');
@@ -119,6 +131,7 @@ export default function ConfirmationPage() {
     link.remove();
   };
 
+  // 根据当前阶段决定显示哪个PDF的URL
   const activePdfUrl = stage === STAGES.STAMPED ? stampedPdf?.url : previewPdf?.url;
 
   return (
@@ -136,6 +149,7 @@ export default function ConfirmationPage() {
           value={brand}
           onChange={e => {
             setBrand(e.target.value);
+            // 如果切换品牌，则重置回表单填写阶段
             if (stage !== STAGES.FORM) {
               setStage(STAGES.FORM);
               updatePreviewPdf(null);
@@ -249,6 +263,7 @@ export default function ConfirmationPage() {
   );
 }
 
+// 表单行组件
 function FieldRow({field, value, onChange}) {
   const isTextarea = Boolean(field.multiline);
   return (
@@ -285,6 +300,7 @@ function FieldRow({field, value, onChange}) {
   );
 }
 
+// 错误提示条组件
 function ErrorBanner({message}) {
   if (!message) return null;
 
@@ -310,6 +326,7 @@ function ErrorBanner({message}) {
   );
 }
 
+// 步骤指示器组件
 function StepIndicator({stageOrder, currentStage}) {
   return (
     <ol
@@ -351,33 +368,47 @@ function StepIndicator({stageOrder, currentStage}) {
   );
 }
 
+// --- PDF 生成核心逻辑 ---
+
+// 在浏览器端生成PDF的核心函数
 function generateConfirmationPdf({form, brand, withStamp}) {
   if (typeof document === 'undefined') {
     throw new Error('PDF 生成仅在浏览器中可用');
   }
+  // 1. 创建Canvas并绘制内容
   const {canvas} = createConfirmationCanvas({form, brand, withStamp});
+  // 2. 将Canvas转换为JPEG格式的Data URL
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  // 3. 将Data URL转换为Uint8Array
   const jpegBytes = dataUrlToUint8Array(dataUrl);
+  // 4. 将JPEG数据嵌入到一个PDF结构中
   const pdfBytes = buildPdfFromJpeg(jpegBytes, canvas.width, canvas.height);
+  // 5. 返回一个PDF的Blob对象
   return new Blob([pdfBytes], {type: 'application/pdf'});
 }
 
+// 创建并绘制包含确认函内容的Canvas
 function createConfirmationCanvas({form, brand, withStamp}) {
-  const width = 1240;
+  const width = 1240; // A4 尺寸像素近似值
   const height = 1754;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
+  
+  // 绘制背景
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
   ctx.save();
   ctx.textBaseline = 'top';
+  
+  // 绘制标题
   ctx.fillStyle = '#111827';
   ctx.font = 'bold 54px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
   ctx.fillText('预定信息确认函', 100, 90);
 
+  // 绘制头部信息
   ctx.font = '26px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
   ctx.fillStyle = '#334155';
   ctx.fillText(`品牌：${brand === 'vanka' ? '万咖' : '多吉'}`, 100, 168);
@@ -385,12 +416,13 @@ function createConfirmationCanvas({form, brand, withStamp}) {
   ctx.fillText(`出具日期：${issueDate}`, 100, 206);
   ctx.fillText(`定金截止：${form.payByDate || '待填写'}`, 100, 244);
 
-  let cursorY = 300;
+  let cursorY = 300; // Y轴绘制指针
   const labelX = 100;
   const valueX = 440;
   const valueWidth = width - valueX - 120;
   const lineHeight = 42;
 
+  // 遍历表单字段并绘制到Canvas上
   FORM_FIELDS.forEach(field => {
     const displayLabel = field.label;
     const rawValue = form[field.key]?.trim() || '';
@@ -402,7 +434,7 @@ function createConfirmationCanvas({form, brand, withStamp}) {
 
     ctx.font = '28px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
     ctx.fillStyle = '#111827';
-    const lines = wrapMultilineText(ctx, safeValue, valueWidth);
+    const lines = wrapMultilineText(ctx, safeValue, valueWidth); // 处理自动换行
     const linesToDraw = lines.length === 0 ? ['—'] : lines;
 
     linesToDraw.forEach((line, idx) => {
@@ -412,6 +444,7 @@ function createConfirmationCanvas({form, brand, withStamp}) {
     const consumedLines = Math.max(linesToDraw.length, 1);
     cursorY += consumedLines * lineHeight + (field.multiline ? 28 : 18);
 
+    // 绘制分隔线
     ctx.strokeStyle = '#e2e8f0';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -420,12 +453,14 @@ function createConfirmationCanvas({form, brand, withStamp}) {
     ctx.stroke();
   });
 
+  // 绘制页脚
   ctx.font = '24px "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif';
   ctx.fillStyle = '#475569';
   ctx.fillText('确认函生成于系统，盖章后生效。', 100, height - 200);
 
   ctx.restore();
 
+  // 如果需要，绘制印章
   if (withStamp) {
     drawStamp(ctx, width, height, brand);
   }
@@ -433,6 +468,7 @@ function createConfirmationCanvas({form, brand, withStamp}) {
   return {canvas};
 }
 
+// 在Canvas上绘制印章
 function drawStamp(ctx, width, height, brand) {
   const centerX = width - 280;
   const centerY = height - 320;
@@ -443,7 +479,7 @@ function drawStamp(ctx, width, height, brand) {
   ctx.fillStyle = '#d32f2f';
   ctx.lineWidth = 10;
   ctx.beginPath();
-  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2); // 绘制圆形
   ctx.stroke();
 
   ctx.textAlign = 'center';
@@ -455,6 +491,7 @@ function drawStamp(ctx, width, height, brand) {
   ctx.restore();
 }
 
+// 文本自动换行辅助函数
 function wrapMultilineText(ctx, text, maxWidth) {
   const sanitized = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const paragraphs = sanitized.split('\n');
@@ -483,6 +520,7 @@ function wrapMultilineText(ctx, text, maxWidth) {
   return lines;
 }
 
+// Data URL 转 Uint8Array
 function dataUrlToUint8Array(dataUrl) {
   const base64 = dataUrl.split(',')[1];
   const binary = atob(base64);
@@ -494,9 +532,10 @@ function dataUrlToUint8Array(dataUrl) {
   return bytes;
 }
 
+// 从JPEG数据构建一个简单的PDF文件
 function buildPdfFromJpeg(jpegBytes, widthPx, heightPx) {
   const encoder = new TextEncoder();
-  const pdfWidth = 595.28; // A4 width in points
+  const pdfWidth = 595.28; // A4 页面宽度 (pt)
   const pdfHeight = (pdfWidth * heightPx) / widthPx;
 
   const chunks = [];

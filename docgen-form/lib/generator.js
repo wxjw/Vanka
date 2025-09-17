@@ -1,6 +1,7 @@
 import {readFile} from 'node:fs/promises';
+import {Script, createContext} from 'node:vm';
 import JSZip from 'jszip';
-import createReport from 'docx-templates';
+import docxTemplates from 'docx-templates';
 
 function convertSquareToCurly(xml) {
   let s = xml;
@@ -24,6 +25,11 @@ async function normalizeDocxDelimiters(docxBuffer) {
   return Buffer.from(await zip.generateAsync({type:'nodebuffer'}));
 }
 
+const createReport =
+  typeof docxTemplates.createReport === 'function'
+    ? docxTemplates.createReport
+    : docxTemplates.default;
+
 const printable = value => {
   if (value === null || value === undefined) return '';
   if (typeof value === 'number' && !Number.isFinite(value)) return '';
@@ -37,13 +43,49 @@ const defaultJsContext = {
   c: (...args) => args.map(printable).join('')
 };
 
+function ensureHelper({ctx, sandbox}) {
+  const helper = defaultJsContext.c;
+  if (ctx && ctx.jsSandbox && ctx.jsSandbox.c !== helper) {
+    ctx.jsSandbox.c = helper;
+  }
+  if (sandbox && sandbox.c !== helper) {
+    sandbox.c = helper;
+  }
+}
+
+function createJsRuntime() {
+  return ({sandbox, ctx}) => {
+    const code = sandbox.__code__ ?? '';
+    const useNoSandbox = Boolean(ctx?.options?.noSandbox);
+    const context = useNoSandbox ? sandbox : createContext(sandbox);
+    ensureHelper({ctx, sandbox: context});
+    const result = (async () => {
+      try {
+        if (useNoSandbox) {
+          const wrapper = new Function('with(this) { return eval(__code__); }');
+          return await wrapper.call(context);
+        }
+        const script = new Script(code);
+        return await script.runInContext(context);
+      } catch (error) {
+        ensureHelper({ctx, sandbox});
+        throw error;
+      } finally {
+        ensureHelper({ctx, sandbox: context});
+      }
+    })();
+    return {modifiedSandbox: context, result};
+  };
+}
+
 export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
   const out = await createReport({
     template: normalized,
     data: payload || {},
-    additionalJsContext: defaultJsContext
+    additionalJsContext: defaultJsContext,
+    runJs: createJsRuntime()
   });
   return Buffer.from(out);
 }

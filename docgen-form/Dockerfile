@@ -11,6 +11,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Install LibreOffice for DOCX to PDF conversion in the preview API
+RUN apk add --no-cache libreoffice
+
 # 拷贝 Next 独立产物
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static

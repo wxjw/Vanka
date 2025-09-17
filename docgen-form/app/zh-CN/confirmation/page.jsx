@@ -150,7 +150,15 @@ export default function ConfirmationPage() {
       </div>
 
       {error && (
-        <div style={{margin: '16px 0', padding: '12px 16px', border: '1px solid #f5c2c7', background: '#f8d7da', color: '#842029'}}>
+        <div
+          style={{
+            margin: '16px 0',
+            padding: '12px 16px',
+            border: '1px solid #f5c2c7',
+            background: '#f8d7da',
+            color: '#842029'
+          }}
+        >
           {error}
         </div>
       )}

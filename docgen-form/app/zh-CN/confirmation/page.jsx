@@ -149,19 +149,7 @@ export default function ConfirmationPage() {
         </select>
       </div>
 
-      {error && (
-        <div
-          style={{
-            margin: '16px 0',
-            padding: '12px 16px',
-            border: '1px solid #f5c2c7',
-            background: '#f8d7da',
-            color: '#842029'
-          }}
-        >
-          {error}
-        </div>
-      )}
+      <ErrorBanner message={error} />
 
       {stage === STAGES.FORM && (
         <form onSubmit={handlePreview} style={{maxWidth: 960}}>
@@ -293,6 +281,31 @@ function FieldRow({field, value, onChange}) {
           onChange={e => onChange(field.key, e.target.value)}
         />
       )}
+    </div>
+  );
+}
+
+function ErrorBanner({message}) {
+  if (!message) return null;
+
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      style={{
+        margin: '16px 0',
+        padding: '12px 16px',
+        border: '1px solid #f5c2c7',
+        background: '#f8d7da',
+        color: '#842029',
+        borderRadius: 6,
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12
+      }}
+    >
+      <span style={{fontWeight: 700}}>提示</span>
+      <span>{message}</span>
     </div>
   );
 }

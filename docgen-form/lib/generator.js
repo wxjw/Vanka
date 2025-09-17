@@ -24,9 +24,26 @@ async function normalizeDocxDelimiters(docxBuffer) {
   return Buffer.from(await zip.generateAsync({type:'nodebuffer'}));
 }
 
+const printable = value => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number' && !Number.isFinite(value)) return '';
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+  }
+  return String(value);
+};
+
+const defaultJsContext = {
+  c: (...args) => args.map(printable).join('')
+};
+
 export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
-  const out = await createReport({ template: normalized, data: payload || {} });
+  const out = await createReport({
+    template: normalized,
+    data: payload || {},
+    additionalJsContext: defaultJsContext
+  });
   return Buffer.from(out);
 }

@@ -41,6 +41,22 @@ export default function InvoicePage() {
     }
   };
 
+  const parseIsoDate = (input) => {
+    if (typeof input !== 'string') return null;
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const [, yearStr, monthStr, dayStr] = match;
+    const year = Number(yearStr);
+    const month = Number(monthStr) - 1;
+    const day = Number(dayStr);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+    if (month < 0 || month > 11 || day < 1 || day > 31) return null;
+    const ms = Date.UTC(year, month, day);
+    return Number.isFinite(ms) ? ms : null;
+  };
+
   const computed = useMemo(() => {
     const qty = toNumber(form.qty);
     const unit = toNumber(form.unitPrice);
@@ -52,8 +68,19 @@ export default function InvoicePage() {
     const amountTotal = toNumber(form.amountTotal) || amount;
     const total = toNumber(form.total) || amountTotal;
 
+    const issueMs = parseIsoDate(form.dateOfIssue);
+    const dueMs = parseIsoDate(form.paymentDue);
+    let daysToPay = '';
+    if (Number.isFinite(issueMs) && Number.isFinite(dueMs)) {
+      const diff = Math.round((dueMs - issueMs) / (24 * 60 * 60 * 1000));
+      if (Number.isFinite(diff) && diff >= 0) {
+        daysToPay = String(diff);
+      }
+    }
+
     return {
       qty, unit, amount, unitPriceTotal, amountTotal, total,
+      daysToPay,
       f: {
         amount: fmtMoney(amount, form.currency),
         unitPriceTotal: fmtMoney(unitPriceTotal, form.currency),
@@ -61,7 +88,17 @@ export default function InvoicePage() {
         total: fmtMoney(total, form.currency)
       }
     };
-  }, [form.qty, form.unitPrice, form.amount, form.unitPriceTotal, form.amountTotal, form.total, form.currency]);
+  }, [
+    form.qty,
+    form.unitPrice,
+    form.amount,
+    form.unitPriceTotal,
+    form.amountTotal,
+    form.total,
+    form.currency,
+    form.dateOfIssue,
+    form.paymentDue
+  ]);
 
   async function handleGenerate(event) {
     event.preventDefault();
@@ -84,7 +121,8 @@ export default function InvoicePage() {
       'MM/DD': form.serviceDetailDate,
       費用包含: form.feeInclude,
       費用不含: form.feeExclude,
-      'SGD 0,000.00': form.total || computed.f.total
+      'SGD 0,000.00': form.total || computed.f.total,
+      X: computed.daysToPay || ''
     };
 
     const meta = {

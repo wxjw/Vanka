@@ -1,5 +1,5 @@
 'use client';
-import {useState} from 'react';
+import { useMemo, useState } from 'react';
 import styles from '../formStyles.module.css';
 
 export default function InvoicePage() {
@@ -25,11 +25,48 @@ export default function InvoicePage() {
     total: ''
   });
 
-  const onChange = (key, value) => setForm(prev => ({...prev, [key]: value}));
+  const onChange = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+
+  // —— 金额预览的自动计算（不回写到表单，只用于右侧预览 & 生成时兜底）——
+  const toNumber = (v) => {
+    if (v == null) return 0;
+    const n = parseFloat(String(v).replace(/,/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const fmtMoney = (n, ccy) => {
+    try {
+      return new Intl.NumberFormat('en-SG', { style: 'currency', currency: ccy || 'SGD' }).format(n || 0);
+    } catch {
+      return `${ccy || 'SGD'} ${Number(n || 0).toFixed(2)}`;
+    }
+  };
+
+  const computed = useMemo(() => {
+    const qty = toNumber(form.qty);
+    const unit = toNumber(form.unitPrice);
+
+    const amountCalc = qty * unit;
+    const amount = toNumber(form.amount) || amountCalc;
+
+    const unitPriceTotal = toNumber(form.unitPriceTotal) || amountCalc;
+    const amountTotal = toNumber(form.amountTotal) || amount;
+    const total = toNumber(form.total) || amountTotal;
+
+    return {
+      qty, unit, amount, unitPriceTotal, amountTotal, total,
+      f: {
+        amount: fmtMoney(amount, form.currency),
+        unitPriceTotal: fmtMoney(unitPriceTotal, form.currency),
+        amountTotal: fmtMoney(amountTotal, form.currency),
+        total: fmtMoney(total, form.currency)
+      }
+    };
+  }, [form.qty, form.unitPrice, form.amount, form.unitPriceTotal, form.amountTotal, form.total, form.currency]);
 
   async function handleGenerate(event) {
     event.preventDefault();
 
+    // 生成文档所需数据：若表单为空，使用自动计算的兜底格式化数值
     const data = {
       客戶姓名或公司全稱: form.clientName,
       客戶電話或電郵: form.contactInfo,
@@ -37,17 +74,17 @@ export default function InvoicePage() {
       'YYYY-MM-DD': form.dateOfIssue,
       幣別: form.currency,
       付款期限: form.paymentDue,
-      項目負責人: `${form.projectLead_name}｜${form.projectLead_phone}｜${form.projectLead_email}`,
+      項目負責人: [form.projectLead_name, form.projectLead_phone, form.projectLead_email].filter(Boolean).join('｜'),
       填寫項目: form.description,
       數量1: form.qty,
       单价XXXX: form.unitPrice,
-      金额xxxxx: form.amount,
-      'SGD XX': form.unitPriceTotal,
-      'SGD 金额合计': form.amountTotal,
+      金额xxxxx: form.amount || computed.f.amount,
+      'SGD XX': form.unitPriceTotal || computed.f.unitPriceTotal,
+      'SGD 金额合计': form.amountTotal || computed.f.amountTotal,
       'MM/DD': form.serviceDetailDate,
       費用包含: form.feeInclude,
       費用不含: form.feeExclude,
-      'SGD 0,000.00': form.total
+      'SGD 0,000.00': form.total || computed.f.total
     };
 
     const meta = {
@@ -56,27 +93,40 @@ export default function InvoicePage() {
       docTypeLabel: '发票'
     };
 
-    const res = await fetch('/api/generate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({templateKey: 'invoice', data, meta})
-    });
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        body: JSON.stringify({ templateKey: 'invoice', data, meta })
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      alert('生成失败：' + text);
-      return;
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        alert('生成失败：' + (text || '未知错误'));
+        return;
+      }
+
+      const blob = await res.blob();
+      // 基本校验：返回的不是 JSON（错误页）而是文件
+      if (!blob || blob.size === 0) {
+        alert('生成失败：返回空文件。');
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${(meta.projectNo || 'invoice').replace(/[^\w.-]/g, '_')}.docx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      // 给浏览器一点处理时间再 revoke，避免个别浏览器中断下载
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error('生成文档时出错:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      alert('生成失败：' + message);
     }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${meta.projectNo || 'invoice'}.docx`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
   }
 
   const renderField = (label, key, type = 'text', placeholder = '') => (
@@ -88,7 +138,7 @@ export default function InvoicePage() {
           rows={4}
           placeholder={placeholder}
           value={form[key]}
-          onChange={event => onChange(key, event.target.value)}
+          onChange={e => onChange(key, e.target.value)}
         />
       ) : (
         <input
@@ -96,7 +146,7 @@ export default function InvoicePage() {
           type={type}
           placeholder={placeholder}
           value={form[key]}
-          onChange={event => onChange(key, event.target.value)}
+          onChange={e => onChange(key, e.target.value)}
         />
       )}
     </div>
@@ -134,7 +184,7 @@ export default function InvoicePage() {
             {renderField('发票编号（项目编号）', 'invoiceNo', 'text', '例如：INV-2024-001')}
             {renderField('开立日期', 'dateOfIssue', 'date')}
             {renderField('付款期限', 'paymentDue', 'date')}
-            {renderField('币别（SGD/CNY/USD/EUR）', 'currency')}
+            {renderField('币别（SGD/CNY/USD/EUR）', 'currency', 'text', 'SGD')}
           </section>
 
           <section className={styles.fieldGrid}>
@@ -149,19 +199,17 @@ export default function InvoicePage() {
             {renderField('项目（描述）', 'description', 'textarea', '填写服务内容、项目范围等')}
             {renderField('数量', 'qty', 'text', '例如：1')}
             {renderField('单价', 'unitPrice', 'text', '例如：3000')}
-            {renderField('金额', 'amount', 'text')}
-            {renderField('单价合计', 'unitPriceTotal', 'text')}
-            {renderField('金额合计', 'amountTotal', 'text')}
+            {renderField('金额（可留空自动算）', 'amount', 'text')}
+            {renderField('单价合计（可留空自动算）', 'unitPriceTotal', 'text')}
+            {renderField('金额合计（可留空自动算）', 'amountTotal', 'text')}
             {renderField('行程与服务详情日期', 'serviceDetailDate', 'text', '例如：2024/08/18-2024/08/21')}
             {renderField('费用包含', 'feeInclude', 'textarea')}
             {renderField('费用不含', 'feeExclude', 'textarea')}
-            {renderField('总计', 'total', 'text', '例如：SGD 3,000.00')}
+            {renderField('总计（可留空自动算）', 'total', 'text', '例如：SGD 3,000.00')}
           </section>
 
           <div className={styles.buttonRow}>
-            <button type="submit" className={styles.primaryButton}>
-              生成 DOCX
-            </button>
+            <button type="submit" className={styles.primaryButton}>生成 DOCX</button>
           </div>
         </form>
 
@@ -195,13 +243,13 @@ export default function InvoicePage() {
               {previewRow('项目描述', form.description)}
               {previewRow('数量', form.qty)}
               {previewRow('单价', form.unitPrice)}
-              {previewRow('金额', form.amount)}
-              {previewRow('单价合计', form.unitPriceTotal)}
-              {previewRow('金额合计', form.amountTotal)}
+              {previewRow('金额', form.amount || computed.f.amount)}
+              {previewRow('单价合计', form.unitPriceTotal || computed.f.unitPriceTotal)}
+              {previewRow('金额合计', form.amountTotal || computed.f.amountTotal)}
               {previewRow('服务日期', form.serviceDetailDate)}
               {previewRow('费用包含', form.feeInclude)}
               {previewRow('费用不含', form.feeExclude)}
-              {previewRow('总计', form.total)}
+              {previewRow('总计', form.total || computed.f.total)}
             </section>
           </div>
         </aside>

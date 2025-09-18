@@ -1,77 +1,51 @@
-import {readFile} from 'node:fs/promises';
-import {Script, createContext} from 'node:vm';
+// docgen.js
+import { readFile } from 'node:fs/promises';
+import { Script, createContext } from 'node:vm';
 import JSZip from 'jszip';
 import docxTemplates from 'docx-templates';
+
+// ---------- utils ----------
 
 function toSafeString(value) {
   if (value == null) return '';
   if (typeof value === 'string') return value;
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? String(value) : '';
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (Array.isArray(value)) {
-    return value.map(toSafeString).join('');
-  }
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(toSafeString).join('');
   if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch (err) {
-      return '';
-    }
+    try { return JSON.stringify(value); } catch { return ''; }
   }
   return String(value);
 }
 
-function convertSquareToCurly(xml) {
-  let s = xml;
-  s = s.replace(/\[\s*#\s*([A-Za-z0-9_.]+)\s*\]/g, '{#$1}');
-  s = s.replace(/\[\s*\/\s*([A-Za-z0-9_.]+)\s*\]/g, '{/$1}');
-  s = s.replace(/\[([A-Za-z0-9_.]+(?:\(.*?\))?)\]/g, '{$1}');
-  return s;
+// 占位：如需规范 docx 分隔符，可在此真正实现
+async function normalizeDocxDelimiters(buffer) {
+  console.warn('normalizeDocxDelimiters is a stub and does not perform any action.');
+  return buffer;
 }
 
-async function normalizeDocxDelimiters(docxBuffer) {
-  const zip = await JSZip.loadAsync(docxBuffer);
-  const files = Object.keys(zip.files).filter(p =>
-    /^word\/(document|header\d*|footer\d*|endnotes|footnotes)\.xml$/.test(p)
-  );
-  for (const p of files) {
-    const file = zip.file(p);
-    if (!file) continue;
-    const xml = await file.async('string');
-    zip.file(p, convertSquareToCurly(xml));
-  }
-  return Buffer.from(await zip.generateAsync({type:'nodebuffer'}));
-}
-
+// 兼容 ESM / CJS 的导出形式
 const createReport =
-  typeof docxTemplates.createReport === 'function'
+  typeof docxTemplates?.createReport === 'function'
     ? docxTemplates.createReport
     : docxTemplates.default;
 
+// ---------- helper + sandbox 安装机制（统一版本） ----------
+
 const helperFunctions = {
+  /**
+   * 强化版 c：支持默认值与可变尾部拼接
+   * 用法：{c foo 'fallback' '-suffix'}
+   */
   c(value, fallback = '', ...rest) {
-    const base = toSafeString(
-      value == null || value === '' ? fallback : value
-    );
+    const base = toSafeString(value == null || value === '' ? fallback : value);
     if (!rest.length) return base;
-    const tail = rest.map(part => toSafeString(part)).join('');
+    const tail = rest.map(toSafeString).join('');
     return `${base}${tail}`;
   }
 };
 
 const helperOverrideKey = Symbol('docgen.helper.c');
-
-function reinstateHelper(target) {
-  const context = ensureHelper(target);
-  if (context && typeof context.c !== 'function') {
-    context.c = helperFunctions.c;
-  }
-  return context;
-}
 
 function helperGetter() {
   const override = this?.[helperOverrideKey];
@@ -84,6 +58,10 @@ function helperSetter(value) {
   }
 }
 
+/**
+ * 为任意目标对象安装 "c" 访问器，并准备 override 存储位
+ * - 若原本有自定义的 c 函数，会被保存到 override
+ */
 function ensureHelper(target) {
   if (!target || typeof target !== 'object') return target;
 
@@ -96,45 +74,58 @@ function ensureHelper(target) {
     });
   }
 
-  const descriptor = Object.getOwnPropertyDescriptor(target, 'c');
-  const needsInstall = !descriptor || descriptor.get !== helperGetter;
+  const desc = Object.getOwnPropertyDescriptor(target, 'c');
+  const needsInstall = !desc || desc.get !== helperGetter;
 
   if (needsInstall) {
+    const existingValue = desc && 'value' in desc ? desc.value : undefined;
     Object.defineProperty(target, 'c', {
       enumerable: true,
       configurable: true,
       get: helperGetter,
       set: helperSetter
     });
+    // 若之前存在自定义函数，则作为 override 保存
+    if (typeof existingValue === 'function') {
+      target[helperOverrideKey] = existingValue;
+    } else {
+      target[helperOverrideKey] = undefined;
+    }
   } else if (typeof target[helperOverrideKey] !== 'function') {
+    // 访问器已存在但 override 非函数，则归位为 undefined（使用默认 helper）
     target[helperOverrideKey] = undefined;
   }
 
   return target;
 }
 
-function evaluateSandbox({sandbox, ctx}) {
+/**
+ * 确保目标对象在调用时拥有可用的 c（若 override 不是函数则使用默认）
+ */
+function reinstateHelper(target) {
+  const context = ensureHelper(target);
+  if (context && typeof context.c !== 'function') {
+    // 通过 override 提供默认实现
+    context[helperOverrideKey] = helperFunctions.c;
+  }
+  return context;
+}
+
+function evaluateSandbox({ sandbox, ctx }) {
   if (ctx?.options?.noSandbox) {
     const context = ensureHelper(sandbox);
     const wrapper = new Function('with(this) { return eval(__code__); }');
-    return {
-      context,
-      result: wrapper.call(context)
-    };
+    return { context, result: wrapper.call(context) };
   }
-
   const source = typeof sandbox.__code__ === 'string' ? sandbox.__code__ : '';
   const script = new Script(source);
   const context = createContext(ensureHelper(sandbox));
-  return {
-    context,
-    result: script.runInContext(context)
-  };
+  return { context, result: script.runInContext(context) };
 }
 
 function createJsRuntime() {
-  return ({sandbox, ctx}) => {
-    const {context, result} = evaluateSandbox({sandbox, ctx});
+  return ({ sandbox, ctx }) => {
+    const { context, result } = evaluateSandbox({ sandbox, ctx });
     const protectedContext = reinstateHelper(context);
 
     const finalize = () => {
@@ -142,36 +133,33 @@ function createJsRuntime() {
     };
 
     const wrapped = Promise.resolve(result)
-      .then(value => {
-        finalize();
-        return value;
-      })
-      .catch(err => {
-        finalize();
-        throw err;
-      });
+      .then((v) => { finalize(); return v; }, (e) => { finalize(); throw e; });
 
-    return {modifiedSandbox: protectedContext, result: wrapped};
+    return { modifiedSandbox: protectedContext, result: wrapped };
   };
 }
 
-export async function generateDocxBuffer({templatePath, payload}) {
+// ---------- 生成 DOCX ----------
+
+export async function generateDocxBuffer({ templatePath, payload }) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
 
-  const data = reinstateHelper({
-    ...(payload || {})
-  });
-  const hadGlobalC = Object.prototype.hasOwnProperty.call(globalThis, 'c');
-  const previousGlobalDescriptor = hadGlobalC
+  // 数据环境：浅克隆后安装/恢复 helper
+  const data = reinstateHelper({ ...(payload || {}) });
+
+  // 记录并设置 globalThis 的 c（用于 docx-templates 的 eval 上下文可见性）
+  const hadGlobalDesc = Object.prototype.hasOwnProperty.call(globalThis, 'c')
     ? Object.getOwnPropertyDescriptor(globalThis, 'c')
     : undefined;
-  const previousGlobalOverride = globalThis[helperOverrideKey];
+  const previousOverride = globalThis[helperOverrideKey];
 
-  reinstateHelper(globalThis);
-  globalThis[helperOverrideKey] = helperFunctions.c;
-
+  // 安装访问器版本，保证行为与局部一致（而不是简单赋值 value）
   try {
+    ensureHelper(globalThis);
+    // 显式指定默认 helper（如有需要用户可在 payload 中自定义覆盖）
+    globalThis[helperOverrideKey] = helperFunctions.c;
+
     const out = await createReport({
       template: normalized,
       data,
@@ -179,24 +167,33 @@ export async function generateDocxBuffer({templatePath, payload}) {
       additionalJsContext: helperFunctions,
       runJs: createJsRuntime()
     });
+
     return Buffer.from(out);
   } finally {
-    if (!hadGlobalC) {
-      delete globalThis.c;
-    } else if (previousGlobalDescriptor) {
-      Object.defineProperty(globalThis, 'c', previousGlobalDescriptor);
-    }
-    if (previousGlobalOverride === undefined) {
-      delete globalThis[helperOverrideKey];
+    // 恢复 globalThis.c
+    if (!hadGlobalDesc) {
+      // 原先不存在则删除
+      try { delete globalThis.c; } catch {}
     } else {
-      globalThis[helperOverrideKey] = previousGlobalOverride;
+      // 原先存在则按原描述符恢复
+      try { Object.defineProperty(globalThis, 'c', hadGlobalDesc); } catch {}
+    }
+
+    // 恢复/清理 override 符号位
+    if (previousOverride === undefined) {
+      try { delete globalThis[helperOverrideKey]; } catch {}
+    } else {
+      globalThis[helperOverrideKey] = previousOverride;
     }
   }
 }
 
+// ---------- 测试需要的内部导出 ----------
+
 export const __sandboxInternals = {
+  toSafeString,
   ensureHelper,
+  reinstateHelper,
   helperFunctions,
-  createJsRuntime,
-  reinstateHelper
+  createJsRuntime
 };

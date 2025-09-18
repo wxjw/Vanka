@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import styles from '../formStyles.module.css';
 
@@ -41,6 +42,22 @@ export default function InvoicePage() {
     }
   };
 
+  const parseIsoDate = (input) => {
+    if (typeof input !== 'string') return null;
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const [, yearStr, monthStr, dayStr] = match;
+    const year = Number(yearStr);
+    const month = Number(monthStr) - 1;
+    const day = Number(dayStr);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+    if (month < 0 || month > 11 || day < 1 || day > 31) return null;
+    const ms = Date.UTC(year, month, day);
+    return Number.isFinite(ms) ? ms : null;
+  };
+
   const computed = useMemo(() => {
     const qty = toNumber(form.qty);
     const unit = toNumber(form.unitPrice);
@@ -52,39 +69,104 @@ export default function InvoicePage() {
     const amountTotal = toNumber(form.amountTotal) || amount;
     const total = toNumber(form.total) || amountTotal;
 
+    const currency = (form.currency || 'SGD').trim().toUpperCase() || 'SGD';
+
+    const issueMs = parseIsoDate(form.dateOfIssue);
+    const dueMs = parseIsoDate(form.paymentDue);
+    let daysToPay = '';
+    if (Number.isFinite(issueMs) && Number.isFinite(dueMs)) {
+      const diff = Math.round((dueMs - issueMs) / (24 * 60 * 60 * 1000));
+      if (Number.isFinite(diff) && diff >= 0) {
+        daysToPay = String(diff);
+      }
+    }
+
     return {
-      qty, unit, amount, unitPriceTotal, amountTotal, total,
+      qty,
+      unit,
+      amount,
+      unitPriceTotal,
+      amountTotal,
+      total,
+      currency,
+      daysToPay,
       f: {
-        amount: fmtMoney(amount, form.currency),
-        unitPriceTotal: fmtMoney(unitPriceTotal, form.currency),
-        amountTotal: fmtMoney(amountTotal, form.currency),
-        total: fmtMoney(total, form.currency)
+        amount: fmtMoney(amount, currency),
+        unitPriceTotal: fmtMoney(unitPriceTotal, currency),
+        amountTotal: fmtMoney(amountTotal, currency),
+        total: fmtMoney(total, currency)
       }
     };
-  }, [form.qty, form.unitPrice, form.amount, form.unitPriceTotal, form.amountTotal, form.total, form.currency]);
+  }, [
+    form.qty,
+    form.unitPrice,
+    form.amount,
+    form.unitPriceTotal,
+    form.amountTotal,
+    form.total,
+    form.currency,
+    form.dateOfIssue,
+    form.paymentDue
+  ]);
 
   async function handleGenerate(event) {
     event.preventDefault();
 
+    const currency = computed.currency;
+    const normalizedCurrency = currency || 'SGD';
+
+    const qtyDisplay = form.qty?.trim()
+      ? form.qty
+      : Number.isFinite(computed.qty) && computed.qty !== 0
+        ? String(computed.qty)
+        : '';
+    const unitPriceDisplay = form.unitPrice?.trim()
+      ? form.unitPrice
+      : Number.isFinite(computed.unit) && computed.unit !== 0
+        ? fmtMoney(computed.unit, normalizedCurrency)
+        : '';
+    const amountDisplay = form.amount?.trim() ? form.amount : computed.f.amount;
+
+    const hasItemValues = [form.description, qtyDisplay, unitPriceDisplay, amountDisplay]
+      .map(v => (typeof v === 'string' ? v.trim() : v))
+      .some(Boolean);
+
+    const items = hasItemValues
+      ? [
+          {
+            description: form.description || '',
+            qty: qtyDisplay,
+            unitPrice: unitPriceDisplay,
+            amount: amountDisplay
+          }
+        ]
+      : [];
+
+    const unitPriceSubtotal = form.unitPriceTotal?.trim() ? form.unitPriceTotal : computed.f.unitPriceTotal;
+    const amountSubtotal = form.amountTotal?.trim() ? form.amountTotal : computed.f.amountTotal;
+    const totalAmount = form.total?.trim() ? form.total : computed.f.total;
+
     // 生成文档所需数据：若表单为空，使用自动计算的兜底格式化数值
     const data = {
-      客戶姓名或公司全稱: form.clientName,
-      客戶電話或電郵: form.contactInfo,
-      'XXX-YYYYMM-XXX': form.invoiceNo,
-      'YYYY-MM-DD': form.dateOfIssue,
-      幣別: form.currency,
-      付款期限: form.paymentDue,
-      項目負責人: [form.projectLead_name, form.projectLead_phone, form.projectLead_email].filter(Boolean).join('｜'),
-      填寫項目: form.description,
-      數量1: form.qty,
-      单价XXXX: form.unitPrice,
-      金额xxxxx: form.amount || computed.f.amount,
-      'SGD XX': form.unitPriceTotal || computed.f.unitPriceTotal,
-      'SGD 金额合计': form.amountTotal || computed.f.amountTotal,
-      'MM/DD': form.serviceDetailDate,
-      費用包含: form.feeInclude,
-      費用不含: form.feeExclude,
-      'SGD 0,000.00': form.total || computed.f.total
+      billTo_name: form.clientName || '',
+      billTo_contact: form.contactInfo || '',
+      invoiceNo: form.invoiceNo || '',
+      dateOfIssue: form.dateOfIssue || '',
+      paymentDue: form.paymentDue || '',
+      currency: normalizedCurrency,
+      projectLead: {
+        name: form.projectLead_name || '',
+        phone: form.projectLead_phone || '',
+        email: form.projectLead_email || ''
+      },
+      items,
+      unitPriceSubtotal,
+      amountSubtotal,
+      serviceDetails: form.serviceDetailDate || '',
+      feeInclude: form.feeInclude || '',
+      feeExclude: form.feeExclude || '',
+      totalAmount,
+      X: computed.daysToPay || ''
     };
 
     const meta = {
@@ -169,7 +251,13 @@ export default function InvoicePage() {
 
   return (
     <main className={styles.page}>
-      <h1 className={styles.heading}>发票（Invoice）</h1>
+      <header className={styles.topBar}>
+        <Link href="/" className={styles.backLink}>
+          <span className={styles.backIcon} aria-hidden>←</span>
+          返回首页
+        </Link>
+        <h1 className={styles.heading}>发票（Invoice）</h1>
+      </header>
 
       <div className={styles.layout}>
         <form onSubmit={handleGenerate} className={`${styles.card} ${styles.formCard}`}>
@@ -227,7 +315,7 @@ export default function InvoicePage() {
               {previewRow('发票编号', form.invoiceNo)}
               {previewRow('开立日期', form.dateOfIssue)}
               {previewRow('付款期限', form.paymentDue)}
-              {previewRow('币别', form.currency)}
+              {previewRow('币别', computed.currency)}
             </section>
 
             <section className={styles.previewSection}>

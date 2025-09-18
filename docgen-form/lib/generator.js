@@ -65,6 +65,14 @@ const helperFunctions = {
 
 const helperOverrideKey = Symbol('docgen.helper.c');
 
+function reinstateHelper(target) {
+  const context = ensureHelper(target);
+  if (context && typeof context.c !== 'function') {
+    context.c = helperFunctions.c;
+  }
+  return context;
+}
+
 function helperGetter() {
   const override = this?.[helperOverrideKey];
   return typeof override === 'function' ? override : helperFunctions.c;
@@ -127,11 +135,23 @@ function evaluateSandbox({sandbox, ctx}) {
 function createJsRuntime() {
   return ({sandbox, ctx}) => {
     const {context, result} = evaluateSandbox({sandbox, ctx});
-    ensureHelper(context);
-    const wrapped = Promise.resolve(result).finally(() => {
-      ensureHelper(context);
-    });
-    return {modifiedSandbox: context, result: wrapped};
+    const protectedContext = reinstateHelper(context);
+
+    const finalize = () => {
+      reinstateHelper(protectedContext);
+    };
+
+    const wrapped = Promise.resolve(result)
+      .then(value => {
+        finalize();
+        return value;
+      })
+      .catch(err => {
+        finalize();
+        throw err;
+      });
+
+    return {modifiedSandbox: protectedContext, result: wrapped};
   };
 }
 
@@ -139,18 +159,16 @@ export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
 
-  const data = {
+  const data = reinstateHelper({
     ...(payload || {})
-  };
-
-  ensureHelper(data);
+  });
   const hadGlobalC = Object.prototype.hasOwnProperty.call(globalThis, 'c');
   const previousGlobalDescriptor = hadGlobalC
     ? Object.getOwnPropertyDescriptor(globalThis, 'c')
     : undefined;
   const previousGlobalOverride = globalThis[helperOverrideKey];
 
-  ensureHelper(globalThis);
+  reinstateHelper(globalThis);
   globalThis[helperOverrideKey] = helperFunctions.c;
 
   try {
@@ -176,4 +194,9 @@ export async function generateDocxBuffer({templatePath, payload}) {
   }
 }
 
-export const __sandboxInternals = {ensureHelper, helperFunctions};
+export const __sandboxInternals = {
+  ensureHelper,
+  helperFunctions,
+  createJsRuntime,
+  reinstateHelper
+};

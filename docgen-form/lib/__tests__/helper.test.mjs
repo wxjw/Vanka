@@ -4,7 +4,7 @@ import vm from 'node:vm';
 
 import {__sandboxInternals} from '../generator.js';
 
-const {ensureHelper, helperFunctions} = __sandboxInternals;
+const {ensureHelper, helperFunctions, createJsRuntime, reinstateHelper} = __sandboxInternals;
 
 function callHelper(target, ...args) {
   return target.c(...args);
@@ -33,6 +33,13 @@ test('ensureHelper keeps helper callable within same turn', () => {
   assert.equal(callHelper(context, 'value'), 'value');
 });
 
+test('reinstateHelper injects default helper when missing or invalid', () => {
+  const context = {c: 'not callable'};
+  const protectedContext = reinstateHelper(context);
+  assert.equal(typeof protectedContext.c, 'function');
+  assert.equal(callHelper(protectedContext, undefined, 'fallback'), 'fallback');
+});
+
 test('ensureHelper allows overriding with custom function', () => {
   const context = {};
   ensureHelper(context);
@@ -56,6 +63,21 @@ test('vm scripts keep helper usable after reassignment', () => {
   ensureHelper(context);
   const result = new vm.Script('c = null; c("value")').runInContext(context);
   assert.equal(result, 'value');
+});
+
+test('createJsRuntime restores helper between sandbox executions', async () => {
+  const runtime = createJsRuntime();
+  const first = runtime({sandbox: {__code__: 'c = null; "ok"'}});
+  const firstResult = await first.result;
+  assert.equal(firstResult, 'ok');
+  assert.equal(typeof first.modifiedSandbox.c, 'function');
+
+  const nextSandbox = first.modifiedSandbox;
+  nextSandbox.__code__ = 'c(undefined, "fallback")';
+  const second = runtime({sandbox: nextSandbox});
+  const secondResult = await second.result;
+  assert.equal(secondResult, 'fallback');
+  assert.equal(typeof second.modifiedSandbox.c, 'function');
 });
 
 // guard to ensure helperFunctions.c remains accessible for other modules

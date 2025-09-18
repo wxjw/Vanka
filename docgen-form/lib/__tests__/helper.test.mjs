@@ -25,6 +25,15 @@ test('ensureHelper keeps helper even if overwritten with non-function', () => {
   assert.equal(callHelper(context, undefined, 'fallback'), 'fallback');
 });
 
+test('ensureHelper restores helper when re-applied after overwrite', () => {
+  const context = {};
+  ensureHelper(context);
+  context.c = null;
+  ensureHelper(context);
+  assert.equal(typeof context.c, 'function');
+  assert.equal(callHelper(context, undefined, 'fallback'), 'fallback');
+});
+
 test('ensureHelper allows overriding with custom function', () => {
   const context = {};
   ensureHelper(context);
@@ -38,7 +47,9 @@ test('ensureHelper works with vm contexts', () => {
   const context = vm.createContext({});
   ensureHelper(context);
   context.c = undefined;
+  assert.equal(callHelper(context, 'value'), 'value');
   assert.equal(typeof context.c, 'function');
+  ensureHelper(context);
   assert.equal(callHelper(context, 'value'), 'value');
 });
 

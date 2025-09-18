@@ -6,35 +6,42 @@ import styles from '../formStyles.module.css';
 /** =========================
  *  常量 & 类型
  *  ========================= */
-const STAGES = {
+const STAGES = Object.freeze({
   FORM: 'form',
   PREVIEW: 'preview',
   STAMPED: 'stamped'
-} as const;
+});
 
-const FORM_FIELDS = [
-  {label: '收件人姓名', key: 'recipientName', placeholder: '请输入收件人姓名'},
-  {label: '确认单编号（项目编号）', key: 'referenceNo', placeholder: '如：VK-2024-001'},
-  {label: '出具日期', key: 'issueDate', type: 'date'},
-  {label: '定金支付截止日期', key: 'payByDate', type: 'date'},
-  {label: '定金金额（CNY）', key: 'payAmountCNY', placeholder: '例如：3000'},
-  {label: '大写金额', key: 'payAmountUppercase', placeholder: '例如：叁仟元整'},
-  {label: '联系人姓名', key: 'contactName'},
-  {label: '联系人电话', key: 'contactPhone'},
-  {label: '联系人邮箱', key: 'contactEmail', type: 'email'},
-  {label: '行程信息', key: 'itinerary', multiline: true, placeholder: '示例：2024/08/18-2024/08/21 西藏行程…'},
-  {label: '限制信息', key: 'restrictions', multiline: true, placeholder: '例如：机票不可退改、需提前确认…'},
-  {label: '其他信息', key: 'others', multiline: true, placeholder: '可填写额外说明'},
-  {label: '备注', key: 'remark', multiline: true, placeholder: '填写内部备注或补充信息'}
-] as const;
+const FORM_FIELDS = Object.freeze(
+  [
+    {label: '收件人姓名', key: 'recipientName', placeholder: '请输入收件人姓名'},
+    {label: '确认单编号（项目编号）', key: 'referenceNo', placeholder: '如：VK-2024-001'},
+    {label: '出具日期', key: 'issueDate', type: 'date'},
+    {label: '定金支付截止日期', key: 'payByDate', type: 'date'},
+    {label: '定金金额（CNY）', key: 'payAmountCNY', placeholder: '例如：3000'},
+    {label: '大写金额', key: 'payAmountUppercase', placeholder: '例如：叁仟元整'},
+    {label: '联系人姓名', key: 'contactName'},
+    {label: '联系人电话', key: 'contactPhone'},
+    {label: '联系人邮箱', key: 'contactEmail', type: 'email'},
+    {label: '行程信息', key: 'itinerary', multiline: true, placeholder: '示例：2024/08/18-2024/08/21 西藏行程…'},
+    {label: '限制信息', key: 'restrictions', multiline: true, placeholder: '例如：机票不可退改、需提前确认…'},
+    {label: '其他信息', key: 'others', multiline: true, placeholder: '可填写额外说明'},
+    {label: '备注', key: 'remark', multiline: true, placeholder: '填写内部备注或补充信息'}
+  ].map(field => Object.freeze(field))
+);
 
-const STAGE_LABELS: Record<(typeof STAGES)[keyof typeof STAGES], string> = {
+const STAGE_LABELS = Object.freeze({
   [STAGES.FORM]: '填写表单',
   [STAGES.PREVIEW]: 'PDF 预览',
   [STAGES.STAMPED]: '盖章与下载'
-};
+});
 
-const DEFAULT_FORM = FORM_FIELDS.reduce((acc, f) => (acc[f.key] = '', acc), {} as Record<string, string>);
+const DEFAULT_FORM = Object.freeze(
+  FORM_FIELDS.reduce((acc, field) => {
+    acc[field.key] = '';
+    return acc;
+  }, {})
+);
 
 // 预览显示宽度（像素）；高度以 A4 比例适配
 const PREVIEW_MAX_WIDTH = 900;
@@ -52,42 +59,43 @@ const ROTATE_MIN = -90;
 const ROTATE_MAX = 90;
 const ROTATE_DEFAULT = 0;
 
-type StampImageMeta = {
-  url: string;           // objectURL 或同源路径
-  naturalW: number;
-  naturalH: number;
-};
+/**
+ * @typedef {Object} StampImageMeta
+ * @property {string} url objectURL 或同源路径
+ * @property {number} naturalW
+ * @property {number} naturalH
+ */
 
 /** =========================
  *  页面组件
  *  ========================= */
 export default function ConfirmationPage() {
-  const [brand, setBrand] = useState<'vanka' | 'duoji'>('vanka');
-  const [form, setForm] = useState<Record<string, string>>(DEFAULT_FORM);
-  const [stage, setStage] = useState<string>(STAGES.FORM);
-  const [previewPdf, setPreviewPdf] = useState<{blob: Blob; url: string} | null>(null);
-  const [stampedPdf, setStampedPdf] = useState<{blob: Blob; url: string} | null>(null);
+  const [brand, setBrand] = useState('vanka');
+  const [form, setForm] = useState(() => ({...DEFAULT_FORM}));
+  const [stage, setStage] = useState(STAGES.FORM);
+  const [previewPdf, setPreviewPdf] = useState(null);
+  const [stampedPdf, setStampedPdf] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
 
   // 预览图（无章）
-  const [previewImgUrl, setPreviewImgUrl] = useState<string>('');
-  const previewBoxRef = useRef<HTMLDivElement | null>(null);
-  const [previewBoxSize, setPreviewBoxSize] = useState<{w: number; h: number}>({w: 0, h: 0});
+  const [previewImgUrl, setPreviewImgUrl] = useState('');
+  const previewBoxRef = useRef(null);
+  const [previewBoxSize, setPreviewBoxSize] = useState({w: 0, h: 0});
 
   // 外部章图（可选）
-  const [stampImg, setStampImg] = useState<StampImageMeta | null>(null);
+  const [stampImg, setStampImg] = useState(null);
 
   // 印章中心点归一化坐标（0~1）
-  const [stampNorm, setStampNorm] = useState<{x: number; y: number}>({x: 0.78, y: 0.82});
+  const [stampNorm, setStampNorm] = useState({x: 0.78, y: 0.82});
   // 章大小（预览层）
-  const [stampSize, setStampSize] = useState<number>(STAMP_SIZE_DEFAULT);
+  const [stampSize, setStampSize] = useState(STAMP_SIZE_DEFAULT);
   // 旋转角度（度）
-  const [stampRotateDeg, setStampRotateDeg] = useState<number>(ROTATE_DEFAULT);
+  const [stampRotateDeg, setStampRotateDeg] = useState(ROTATE_DEFAULT);
 
   // 拖拽状态
   const draggingRef = useRef(false);
-  const pointerOffsetRef = useRef<{dx: number; dy: number}>({dx: 0, dy: 0});
+  const pointerOffsetRef = useRef({dx: 0, dy: 0});
 
   const stageOrder = useMemo(() => [STAGES.FORM, STAGES.PREVIEW, STAGES.STAMPED], []);
 
@@ -116,10 +124,11 @@ export default function ConfirmationPage() {
     };
   }, [previewPdf, stampedPdf, previewImgUrl, stampImg]);
 
-  const onChange = (key: string, value: string) => setForm(prev => ({...prev, [key]: value}));
+  const onChange = (key, value) => setForm(prev => ({...prev, [key]: value}));
 
-  const handleBrandChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setBrand(e.target.value as 'vanka' | 'duoji');
+  const handleBrandChange = e => {
+    const value = e.target.value === 'duoji' ? 'duoji' : 'vanka';
+    setBrand(value);
     if (stage !== STAGES.FORM) {
       setStage(STAGES.FORM);
       setError('');
@@ -132,7 +141,7 @@ export default function ConfirmationPage() {
   };
 
   // 章图上传（SVG/PNG/JPG/WebP）
-  const onPickStamp = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPickStamp = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -154,20 +163,20 @@ export default function ConfirmationPage() {
     setPreviewImgUrl('');
   };
 
-  const updatePreviewPdf = (blob: Blob | null) => {
+  const updatePreviewPdf = blob => {
     revokeUrl(previewPdf);
     if (!blob) return setPreviewPdf(null);
     setPreviewPdf({blob, url: URL.createObjectURL(blob)});
   };
 
-  const updateStampedPdf = (blob: Blob | null) => {
+  const updateStampedPdf = blob => {
     revokeUrl(stampedPdf);
     if (!blob) return setStampedPdf(null);
     setStampedPdf({blob, url: URL.createObjectURL(blob)});
   };
 
   // 生成无章的预览图片 + 无章 PDF
-  const handlePreview = async (e: React.FormEvent) => {
+  const handlePreview = async e => {
     e.preventDefault();
     setIsGenerating(true);
     setError('');
@@ -240,11 +249,14 @@ export default function ConfirmationPage() {
   const resetStamp = () => setStampNorm({x: 0.78, y: 0.82});
 
   // 拖拽
-  const onStampPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onStampPointerDown = e => {
     const box = previewBoxRef.current;
     if (!box) return;
     draggingRef.current = true;
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const target = e.currentTarget;
+    if (target?.setPointerCapture) {
+      target.setPointerCapture(e.pointerId);
+    }
 
     const rect = box.getBoundingClientRect();
     const {left: curLeft, top: curTop} = stampLeftTopFromNorm(stampNorm, previewBoxSize, stampSize);
@@ -253,7 +265,7 @@ export default function ConfirmationPage() {
     pointerOffsetRef.current = {dx: px - curLeft, dy: py - curTop};
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onPointerMove = e => {
     if (!draggingRef.current) return;
     const box = previewBoxRef.current;
     if (!box) return;
@@ -274,10 +286,13 @@ export default function ConfirmationPage() {
     setStampNorm({x: centerX / previewBoxSize.w, y: centerY / previewBoxSize.h});
   };
 
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onPointerUp = e => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    const target = e.currentTarget;
+    if (target?.releasePointerCapture) {
+      target.releasePointerCapture(e.pointerId);
+    }
   };
 
   const activePdfUrl = stage === STAGES.STAMPED ? stampedPdf?.url : previewPdf?.url;
@@ -584,13 +599,12 @@ export default function ConfirmationPage() {
 /** =========================
  *  子组件
  *  ========================= */
-function FormField({field, value, onChange}: any) {
+function FormField({field, value, onChange}) {
   const inputProps = {
     className: styles.textControl,
     placeholder: field.placeholder || '',
     value: value || '',
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      onChange(field.key, e.target.value)
+    onChange: e => onChange(field.key, e.target.value)
   };
 
   return (
@@ -599,15 +613,15 @@ function FormField({field, value, onChange}: any) {
         {field.label}
       </label>
       {field.multiline ? (
-        <textarea {...(inputProps as any)} id={`field-${field.key}`} rows={4} />
+        <textarea {...inputProps} id={`field-${field.key}`} rows={4} />
       ) : (
-        <input {...(inputProps as any)} id={`field-${field.key}`} type={field.type || 'text'} />
+        <input {...inputProps} id={`field-${field.key}`} type={field.type || 'text'} />
       )}
     </div>
   );
 }
 
-function previewRow(label: string, value: any) {
+function previewRow(label, value) {
   const display = value == null ? '' : typeof value === 'string' ? value : String(value);
   const content = display.trim() ? display : '—';
   return (
@@ -618,7 +632,7 @@ function previewRow(label: string, value: any) {
   );
 }
 
-function ErrorBanner({message}: {message: string}) {
+function ErrorBanner({message}) {
   if (!message) return null;
   return (
     <div role="alert" aria-live="assertive" className={styles.errorBanner}>
@@ -628,7 +642,7 @@ function ErrorBanner({message}: {message: string}) {
   );
 }
 
-function StepIndicator({stageOrder, currentStage}: {stageOrder: string[]; currentStage: string}) {
+function StepIndicator({stageOrder, currentStage}) {
   return (
     <ol style={{listStyle: 'none', display: 'flex', gap: 20, padding: 0, margin: 0, flexWrap: 'wrap'}}>
       {stageOrder.map((stage, index) => {
@@ -661,6 +675,17 @@ function StepIndicator({stageOrder, currentStage}: {stageOrder: string[]; curren
 /** =========================
  *  PDF 生成核心逻辑（前端纯生成）
  *  ========================= */
+/**
+ * @param {Object} params
+ * @param {Record<string, string>} params.form
+ * @param {'vanka' | 'duoji'} params.brand
+ * @param {boolean} params.withStamp
+ * @param {{x: number, y: number}=} params.stampCenter 画布坐标（像素，中心点）
+ * @param {number=} params.previewToCanvasScale 预览→画布比例
+ * @param {StampImageMeta | null=} params.stampImg 外部章图
+ * @param {number=} params.previewStampSize 预览层的章大小（px）
+ * @param {number=} params.stampRotateDeg 旋转角度（deg）
+ */
 function generateConfirmationPdf({
   form,
   brand,
@@ -670,15 +695,6 @@ function generateConfirmationPdf({
   stampImg,
   previewStampSize,
   stampRotateDeg = 0
-}: {
-  form: Record<string, string>;
-  brand: 'vanka' | 'duoji';
-  withStamp: boolean;
-  stampCenter?: {x: number; y: number}; // 画布坐标（像素，中心点）
-  previewToCanvasScale?: number;        // 预览→画布比例
-  stampImg?: StampImageMeta | null;     // 外部章图
-  previewStampSize?: number;            // 预览层的章大小（px）
-  stampRotateDeg?: number;              // 旋转角度（deg）
 }) {
   if (typeof document === 'undefined') throw new Error('PDF 生成仅在浏览器中可用');
   const {canvas} = createConfirmationCanvas({
@@ -690,6 +706,17 @@ function generateConfirmationPdf({
   return new Blob([pdfBytes], {type: 'application/pdf'});
 }
 
+/**
+ * @param {Object} params
+ * @param {Record<string, string>} params.form
+ * @param {'vanka' | 'duoji'} params.brand
+ * @param {boolean} params.withStamp
+ * @param {{x: number, y: number}=} params.stampCenter
+ * @param {number=} params.previewToCanvasScale
+ * @param {StampImageMeta | null=} params.stampImg
+ * @param {number=} params.previewStampSize
+ * @param {number=} params.stampRotateDeg
+ */
 function createConfirmationCanvas({
   form,
   brand,
@@ -699,22 +726,16 @@ function createConfirmationCanvas({
   stampImg,
   previewStampSize = STAMP_SIZE_DEFAULT,
   stampRotateDeg = 0
-}: {
-  form: Record<string, string>;
-  brand: 'vanka' | 'duoji';
-  withStamp: boolean;
-  stampCenter?: {x: number; y: number};
-  previewToCanvasScale?: number;
-  stampImg?: StampImageMeta | null;
-  previewStampSize?: number;
-  stampRotateDeg?: number;
 }) {
   const width = CANVAS_WIDTH;
   const height = CANVAS_HEIGHT;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('无法获取 2D 绘图上下文');
+  }
 
   // 背景
   ctx.fillStyle = '#ffffff';
@@ -815,14 +836,7 @@ function createConfirmationCanvas({
 }
 
 /** 文字章兜底（支持旋转；以 targetBoxSize 做等比设计） */
-function drawFallbackStamp(
-  ctx: CanvasRenderingContext2D,
-  centerX: number,
-  centerY: number,
-  targetBoxSize: number,
-  brand: 'vanka' | 'duoji',
-  rad: number = 0
-) {
+function drawFallbackStamp(ctx, centerX, centerY, targetBoxSize, brand, rad = 0) {
   const radius = targetBoxSize * 0.47;
   const lineWidth = Math.max(2, Math.round(targetBoxSize * 0.05));
 
@@ -850,10 +864,16 @@ function drawFallbackStamp(
 /** =========================
  *  工具函数
  *  ========================= */
-function wrapMultilineText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text
+ * @param {number} maxWidth
+ * @returns {string[]}
+ */
+function wrapMultilineText(ctx, text, maxWidth) {
   const sanitized = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const paragraphs = sanitized.split('\n');
-  const lines: string[] = [];
+  const lines = [];
 
   paragraphs.forEach(para => {
     if (para === '') {
@@ -876,7 +896,11 @@ function wrapMultilineText(ctx: CanvasRenderingContext2D, text: string, maxWidth
   return lines;
 }
 
-function dataUrlToUint8Array(dataUrl: string) {
+/**
+ * @param {string} dataUrl
+ * @returns {Uint8Array}
+ */
+function dataUrlToUint8Array(dataUrl) {
   const base64 = dataUrl.split(',')[1];
   const binary = atob(base64);
   const len = binary.length;
@@ -885,22 +909,28 @@ function dataUrlToUint8Array(dataUrl: string) {
   return bytes;
 }
 
-function buildPdfFromJpeg(jpegBytes: Uint8Array, widthPx: number, heightPx: number) {
+/**
+ * @param {Uint8Array} jpegBytes
+ * @param {number} widthPx
+ * @param {number} heightPx
+ * @returns {Uint8Array}
+ */
+function buildPdfFromJpeg(jpegBytes, widthPx, heightPx) {
   const encoder = new TextEncoder();
   const pdfWidth = 595.28; // A4 宽 (pt)
   const pdfHeight = (pdfWidth * heightPx) / widthPx;
 
-  const chunks: Uint8Array[] = [];
+  const chunks = [];
   let offset = 0;
-  const offsets: number[] = [0];
+  const offsets = [0];
 
-  const push = (chunk: string | Uint8Array) => {
+  const push = chunk => {
     const bytes = typeof chunk === 'string' ? encoder.encode(chunk) : chunk;
     chunks.push(bytes);
     offset += bytes.length;
   };
 
-  const writeObject = (id: number, parts: (string | Uint8Array)[]) => {
+  const writeObject = (id, parts) => {
     offsets[id] = offset;
     push(`${id} 0 obj\n`);
     parts.forEach(push);
@@ -946,16 +976,18 @@ function buildPdfFromJpeg(jpegBytes: Uint8Array, widthPx: number, heightPx: numb
   return pdfBytes;
 }
 
-function revokeUrl(obj: {url: string} | null) {
+function revokeUrl(obj) {
   if (obj?.url) URL.revokeObjectURL(obj.url);
 }
 
 // 根据归一化坐标计算印章左上角（预览容器坐标系）
-function stampLeftTopFromNorm(
-  norm: {x: number; y: number},
-  box: {w: number; h: number},
-  stampSize: number
-): {left: number; top: number} {
+/**
+ * @param {{x: number, y: number}} norm
+ * @param {{w: number, h: number}} box
+ * @param {number} stampSize
+ * @returns {{left: number, top: number}}
+ */
+function stampLeftTopFromNorm(norm, box, stampSize) {
   const centerX = clamp(norm.x, 0, 1) * box.w;
   const centerY = clamp(norm.y, 0, 1) * box.h;
   return {
@@ -964,12 +996,21 @@ function stampLeftTopFromNorm(
   };
 }
 
-function clamp(n: number, min: number, max: number) {
+/**
+ * @param {number} n
+ * @param {number} min
+ * @param {number} max
+ */
+function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
 // 加载图片自然尺寸（支持 SVG/PNG/JPG/WebP）
-function loadImageMeta(url: string): Promise<{naturalW: number; naturalH: number}> {
+/**
+ * @param {string} url
+ * @returns {Promise<{naturalW: number, naturalH: number}>}
+ */
+function loadImageMeta(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     // 同源或 objectURL 最稳；跨域需 CORS

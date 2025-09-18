@@ -18,7 +18,8 @@ function toSafeString(value) {
   return String(value);
 }
 
-const BRACKET_TOKEN_PATTERN = /\[(#?\/?)([A-Za-z0-9_.-]+?)\]/g;
+const BRACKET_TOKEN_PATTERN = /\[(#?\/?)([^\]\r\n<]*?)\]/gu;
+const IDENTIFIER_SEGMENT_PATTERN = /^[$_\p{ID_Start}][$\u200C\u200D0-9\p{ID_Continue}]*$/u;
 
 function deriveLoopAlias(loopName, activeAliases) {
   let base = loopName.includes('.') ? loopName.split('.').pop() || loopName : loopName;
@@ -50,7 +51,7 @@ function releaseLoopAlias(alias, activeAliases) {
 }
 
 function needsLoopContext(body) {
-  return body && !body.includes('.') && !body.includes('-');
+  return Boolean(body) && !body.includes('.') && !body.includes('-');
 }
 
 function accessFromAlias(alias, body) {
@@ -58,6 +59,42 @@ function accessFromAlias(alias, body) {
     ? `.${body}`
     : `[${JSON.stringify(body)}]`;
   return `$${alias}${safeBody}`;
+}
+
+function isIdentifierSegment(value) {
+  return IDENTIFIER_SEGMENT_PATTERN.test(value);
+}
+
+function toRootExpression(body) {
+  if (!body) return body;
+
+  if (!body.includes('.')) {
+    return isIdentifierSegment(body) ? body : `this[${JSON.stringify(body)}]`;
+  }
+
+  const segments = body.split('.');
+  const [head, ...rest] = segments;
+
+  if (!head || !isIdentifierSegment(head)) {
+    return `this[${JSON.stringify(body)}]`;
+  }
+
+  let expression = head;
+
+  for (const segment of rest) {
+    if (!segment) {
+      return `this[${JSON.stringify(body)}]`;
+    }
+    const trimmed = segment.trim();
+    if (!trimmed) {
+      return `this[${JSON.stringify(body)}]`;
+    }
+    expression += isIdentifierSegment(trimmed)
+      ? `.${trimmed}`
+      : `[${JSON.stringify(trimmed)}]`;
+  }
+
+  return expression;
 }
 
 function rewriteBracketTokens(content) {
@@ -68,9 +105,17 @@ function rewriteBracketTokens(content) {
   let result = '';
 
   for (const match of content.matchAll(BRACKET_TOKEN_PATTERN)) {
-    const [full, prefix, body] = match;
+    const [full, prefix, rawBody] = match;
     const index = match.index ?? 0;
     result += content.slice(lastIndex, index);
+
+    const body = rawBody.trim();
+
+    if (!body) {
+      result += full;
+      lastIndex = index + full.length;
+      continue;
+    }
 
     if (prefix === '#') {
       const alias = deriveLoopAlias(body, activeAliases);
@@ -89,7 +134,7 @@ function rewriteBracketTokens(content) {
         const current = loopStack[loopStack.length - 1];
         replacement = `{${accessFromAlias(current.alias, body)}}`;
       } else {
-        replacement = `{${body}}`;
+        replacement = `{${toRootExpression(body)}}`;
       }
       result += replacement;
       mutated = true;
@@ -298,5 +343,6 @@ export const __sandboxInternals = {
   ensureHelper,
   reinstateHelper,
   helperFunctions,
-  createJsRuntime
+  createJsRuntime,
+  rewriteBracketTokens
 };

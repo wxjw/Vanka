@@ -66,8 +66,8 @@ export default function InvoicePage() {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        // 使用 throw new Error 会更规范
-        throw new Error(text || '生成失败');
+        alert('生成失败：' + (text || '未知错误'));
+        return;
       }
 
       const blob = await res.blob();
@@ -81,7 +81,8 @@ export default function InvoicePage() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('生成文档时出错:', err);
-      alert('生成失败：' + err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      alert('生成失败：' + message);
     }
   }
 

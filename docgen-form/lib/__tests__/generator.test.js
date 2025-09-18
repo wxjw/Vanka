@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import JSZip from 'jszip';
 
 import {generateDocxBuffer} from '../generator.js';
@@ -70,4 +71,60 @@ test('generateDocxBuffer keeps helper c after EXEC commands', async () => {
   assert.ok(documentXml, 'Expected generated document to include document.xml');
   const matches = documentXml.match(/fallback/g) || [];
   assert.strictEqual(matches.length, 2);
+});
+
+test('invoice template placeholders are normalized before rendering', async () => {
+  const templatePath = fileURLToPath(
+    new URL('../../templates/invoice_template_模板.docx', import.meta.url)
+  );
+
+  const payload = {
+    billTo_name: 'Acme Corporation',
+    billTo_contact: 'Ms. Jane Doe',
+    invoiceNo: 'INV-2024-001',
+    dateOfIssue: '2024-05-01',
+    paymentDue: '2024-05-15',
+    currency: 'SGD',
+    projectLead: {
+      name: 'John Smith',
+      email: 'john.smith@example.com',
+      phone: '+65 1234 5678'
+    },
+    serviceDetails: 'Professional consulting services',
+    feeInclude: '7% GST',
+    feeExclude: 'Out-of-scope expenses',
+    unitPriceSubtotal: 'SGD 1,000.00',
+    amountSubtotal: 'SGD 1,000.00',
+    totalAmount: 'SGD 1,070.00',
+    unitPrice: 'SGD 100.00',
+    amount: 'SGD 1,000.00',
+    qty: '10',
+    items: [
+      {
+        description: 'Consulting Package',
+        qty: '10',
+        unitPrice: 'SGD 100.00',
+        amount: 'SGD 1,000.00'
+      }
+    ],
+    X: '14'
+  };
+
+  const output = await generateDocxBuffer({templatePath, payload});
+  const zip = await JSZip.loadAsync(output);
+  const documentXml = await zip.file('word/document.xml')?.async('string');
+
+  assert.ok(documentXml, 'Expected generated invoice to include document.xml');
+  assert.ok(
+    !/\[(#?\/?)\w[^\]]*\]/.test(documentXml),
+    'Expected document.xml not to contain legacy bracketed tokens'
+  );
+  assert.ok(
+    !documentXml.includes('{X}'),
+    'Expected payment window marker to be replaced instead of remaining as {X}'
+  );
+  assert.ok(
+    /within[^<]*<\/w:t>\s*<w:t[^>]*>14<\/w:t>/.test(documentXml),
+    'Expected computed days to pay to appear adjacent to the payment window text'
+  );
 });

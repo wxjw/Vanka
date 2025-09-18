@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, writeFile} from 'node:fs/promises';
+import {mkdtemp, writeFile, readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import JSZip from 'jszip';
 
-import {generateDocxBuffer} from '../generator.js';
+import {generateDocxBuffer, __sandboxInternals} from '../generator.js';
 
 async function createTemplateWithCommands(commands) {
   const zip = new JSZip();
@@ -126,5 +126,30 @@ test('invoice template placeholders are normalized before rendering', async () =
   assert.ok(
     /within[^<]*<\/w:t>\s*<w:t[^>]*>14<\/w:t>/.test(documentXml),
     'Expected computed days to pay to appear adjacent to the payment window text'
+  );
+});
+
+test('confirmation template bracket placeholders normalize Unicode and punctuation', async () => {
+  const templatesDir = fileURLToPath(new URL('../../templates/', import.meta.url));
+  const templatePath = join(templatesDir, '预定信息确认函模板_含字体#万咖.docx');
+
+  const buffer = await readFile(templatePath);
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file('word/document.xml')?.async('string');
+
+  assert.ok(documentXml, 'Expected confirmation template to include document.xml');
+
+  const { rewriteBracketTokens } = __sandboxInternals;
+  const { mutated, content } = rewriteBracketTokens(documentXml);
+
+  assert.ok(mutated, 'Expected normalization to rewrite bracket tokens');
+  assert.ok(content.includes('{联系人}'), 'Expected Unicode placeholder to be rewritten into a command');
+  assert.ok(
+    content.includes('{this["XXXX/XX/XX"]}'),
+    'Expected slash-delimited placeholder to fall back to bracket notation'
+  );
+  assert.ok(
+    content.includes('{this["电话｜邮箱"]}'),
+    'Expected placeholder with punctuation to fall back to bracket notation'
   );
 });

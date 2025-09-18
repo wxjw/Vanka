@@ -1,55 +1,46 @@
-import {readFile} from 'node:fs/promises';
-import {Script, createContext} from 'node:vm';
+// docgen.js
+import { readFile } from 'node:fs/promises';
+import { Script, createContext } from 'node:vm';
 import JSZip from 'jszip';
 import docxTemplates from 'docx-templates';
 
-// 1. 清理重复，只保留一套核心函数
+// ---------- utils ----------
 
 function toSafeString(value) {
   if (value == null) return '';
   if (typeof value === 'string') return value;
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? String(value) : '';
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (Array.isArray(value)) {
-    return value.map(toSafeString).join('');
-  }
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(toSafeString).join('');
   if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch (err) {
-      return '';
-    }
+    try { return JSON.stringify(value); } catch { return ''; }
   }
   return String(value);
 }
 
-// 模拟的函数，确保它存在
+// 占位：如需规范 docx 分隔符，可在此真正实现
 async function normalizeDocxDelimiters(buffer) {
-    console.warn('normalizeDocxDelimiters is a stub and does not perform any action.');
-    return buffer;
+  console.warn('normalizeDocxDelimiters is a stub and does not perform any action.');
+  return buffer;
 }
 
+// 兼容 ESM / CJS 的导出形式
 const createReport =
-  typeof docxTemplates.createReport === 'function'
+  typeof docxTemplates?.createReport === 'function'
     ? docxTemplates.createReport
     : docxTemplates.default;
 
-// 2. 清理重复，只保留一套 Helper 和 Sandbox 的实现
+// ---------- helper + sandbox 安装机制（统一版本） ----------
 
 const helperFunctions = {
   /**
-   * 功能更强大的 c 函数，支持默认值
+   * 强化版 c：支持默认值与可变尾部拼接
+   * 用法：{c foo 'fallback' '-suffix'}
    */
   c(value, fallback = '', ...rest) {
-    const base = toSafeString(
-      value == null || value === '' ? fallback : value
-    );
+    const base = toSafeString(value == null || value === '' ? fallback : value);
     if (!rest.length) return base;
-    const tail = rest.map(part => toSafeString(part)).join('');
+    const tail = rest.map(toSafeString).join('');
     return `${base}${tail}`;
   }
 };
@@ -67,8 +58,13 @@ function helperSetter(value) {
   }
 }
 
+/**
+ * 为任意目标对象安装 "c" 访问器，并准备 override 存储位
+ * - 若原本有自定义的 c 函数，会被保存到 override
+ */
 function ensureHelper(target) {
   if (!target || typeof target !== 'object') return target;
+
   if (!Object.prototype.hasOwnProperty.call(target, helperOverrideKey)) {
     Object.defineProperty(target, helperOverrideKey, {
       value: undefined,
@@ -77,28 +73,45 @@ function ensureHelper(target) {
       configurable: true
     });
   }
-  const descriptor = Object.getOwnPropertyDescriptor(target, 'c');
-  const needsInstall = !descriptor || descriptor.get !== helperGetter;
+
+  const desc = Object.getOwnPropertyDescriptor(target, 'c');
+  const needsInstall = !desc || desc.get !== helperGetter;
+
   if (needsInstall) {
-    const existingValue = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+    const existingValue = desc && 'value' in desc ? desc.value : undefined;
     Object.defineProperty(target, 'c', {
       enumerable: true,
       configurable: true,
       get: helperGetter,
       set: helperSetter
     });
+    // 若之前存在自定义函数，则作为 override 保存
     if (typeof existingValue === 'function') {
       target[helperOverrideKey] = existingValue;
     } else {
       target[helperOverrideKey] = undefined;
     }
   } else if (typeof target[helperOverrideKey] !== 'function') {
+    // 访问器已存在但 override 非函数，则归位为 undefined（使用默认 helper）
     target[helperOverrideKey] = undefined;
   }
+
   return target;
 }
 
-function evaluateSandbox({sandbox, ctx}) {
+/**
+ * 确保目标对象在调用时拥有可用的 c（若 override 不是函数则使用默认）
+ */
+function reinstateHelper(target) {
+  const context = ensureHelper(target);
+  if (context && typeof context.c !== 'function') {
+    // 通过 override 提供默认实现
+    context[helperOverrideKey] = helperFunctions.c;
+  }
+  return context;
+}
+
+function evaluateSandbox({ sandbox, ctx }) {
   if (ctx?.options?.noSandbox) {
     const context = ensureHelper(sandbox);
     const wrapper = new Function('with(this) { return eval(__code__); }');
@@ -111,43 +124,42 @@ function evaluateSandbox({sandbox, ctx}) {
 }
 
 function createJsRuntime() {
-  return ({sandbox, ctx}) => {
-    const {context, result} = evaluateSandbox({sandbox, ctx});
-    ensureHelper(context);
-    const wrapped = Promise.resolve(result).finally(() => {
-      ensureHelper(context);
-    });
-    return {modifiedSandbox: context, result: wrapped};
+  return ({ sandbox, ctx }) => {
+    const { context, result } = evaluateSandbox({ sandbox, ctx });
+    const protectedContext = reinstateHelper(context);
+
+    const finalize = () => {
+      reinstateHelper(protectedContext);
+    };
+
+    const wrapped = Promise.resolve(result)
+      .then((v) => { finalize(); return v; }, (e) => { finalize(); throw e; });
+
+    return { modifiedSandbox: protectedContext, result: wrapped };
   };
 }
 
-// 3. 实现了最佳合并策略的核心函数
+// ---------- 生成 DOCX ----------
 
-export async function generateDocxBuffer({templatePath, payload}) {
+export async function generateDocxBuffer({ templatePath, payload }) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
 
-  const payloadObject = payload && typeof payload === 'object' ? payload : {};
-  const hasCustomC = typeof payloadObject.c === 'function';
-  const data = ensureHelper({...payloadObject});
+  // 数据环境：浅克隆后安装/恢复 helper
+  const data = reinstateHelper({ ...(payload || {}) });
 
-  if (hasCustomC) {
-    data.c = payloadObject.c;
-  } else {
-    data.c = helperFunctions.c;
-  }
+  // 记录并设置 globalThis 的 c（用于 docx-templates 的 eval 上下文可见性）
+  const hadGlobalDesc = Object.prototype.hasOwnProperty.call(globalThis, 'c')
+    ? Object.getOwnPropertyDescriptor(globalThis, 'c')
+    : undefined;
+  const previousOverride = globalThis[helperOverrideKey];
 
-  const hadGlobalC = Object.prototype.hasOwnProperty.call(globalThis, 'c');
-  const previousGlobalC = globalThis.c;
-
-  Object.defineProperty(globalThis, 'c', {
-    value: helperFunctions.c,
-    configurable: true,
-    writable: true,
-    enumerable: false
-  });
-
+  // 安装访问器版本，保证行为与局部一致（而不是简单赋值 value）
   try {
+    ensureHelper(globalThis);
+    // 显式指定默认 helper（如有需要用户可在 payload 中自定义覆盖）
+    globalThis[helperOverrideKey] = helperFunctions.c;
+
     const out = await createReport({
       template: normalized,
       data,
@@ -155,20 +167,33 @@ export async function generateDocxBuffer({templatePath, payload}) {
       additionalJsContext: helperFunctions,
       runJs: createJsRuntime()
     });
+
     return Buffer.from(out);
   } finally {
-    if (!hadGlobalC) {
-      delete globalThis.c;
-    } else if (globalThis.c !== previousGlobalC) {
-      Object.defineProperty(globalThis, 'c', {
-        value: previousGlobalC,
-        configurable: true,
-        writable: true,
-        enumerable: false
-      });
+    // 恢复 globalThis.c
+    if (!hadGlobalDesc) {
+      // 原先不存在则删除
+      try { delete globalThis.c; } catch {}
+    } else {
+      // 原先存在则按原描述符恢复
+      try { Object.defineProperty(globalThis, 'c', hadGlobalDesc); } catch {}
+    }
+
+    // 恢复/清理 override 符号位
+    if (previousOverride === undefined) {
+      try { delete globalThis[helperOverrideKey]; } catch {}
+    } else {
+      globalThis[helperOverrideKey] = previousOverride;
     }
   }
 }
 
-// 导出内部函数用于测试
-export const __sandboxInternals = {ensureHelper, helperFunctions};
+// ---------- 测试需要的内部导出 ----------
+
+export const __sandboxInternals = {
+  toSafeString,
+  ensureHelper,
+  reinstateHelper,
+  helperFunctions,
+  createJsRuntime
+};

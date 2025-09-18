@@ -57,7 +57,7 @@ function accessFromAlias(alias, body) {
   const safeBody = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(body)
     ? `.${body}`
     : `[${JSON.stringify(body)}]`;
-  return `\$${alias}${safeBody}`;
+  return `$${alias}${safeBody}`;
 }
 
 function rewriteBracketTokens(content) {

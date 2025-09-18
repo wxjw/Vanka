@@ -26,6 +26,13 @@ test('ensureHelper restores helper when re-applied after overwrite', () => {
   assert.equal(callHelper(context, undefined, 'fallback'), 'fallback');
 });
 
+test('ensureHelper keeps helper callable within same turn', () => {
+  const context = {};
+  ensureHelper(context);
+  context.c = null;
+  assert.equal(callHelper(context, 'value'), 'value');
+});
+
 test('ensureHelper allows overriding with custom function', () => {
   const context = {};
   ensureHelper(context);
@@ -42,6 +49,13 @@ test('ensureHelper works with vm contexts', () => {
   ensureHelper(context);
   assert.equal(typeof context.c, 'function');
   assert.equal(callHelper(context, 'value'), 'value');
+});
+
+test('vm scripts keep helper usable after reassignment', () => {
+  const context = vm.createContext({});
+  ensureHelper(context);
+  const result = new vm.Script('c = null; c("value")').runInContext(context);
+  assert.equal(result, 'value');
 });
 
 // guard to ensure helperFunctions.c remains accessible for other modules

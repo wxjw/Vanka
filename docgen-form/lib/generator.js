@@ -63,16 +63,43 @@ const helperFunctions = {
   }
 };
 
+const helperOverrideKey = Symbol('docgen.helper.c');
+
+function helperGetter() {
+  const override = this?.[helperOverrideKey];
+  return typeof override === 'function' ? override : helperFunctions.c;
+}
+
+function helperSetter(value) {
+  if (this && typeof this === 'object') {
+    this[helperOverrideKey] = value;
+  }
+}
+
 function ensureHelper(target) {
   if (!target || typeof target !== 'object') return target;
 
-  if (typeof target.c !== 'function') {
-    Object.defineProperty(target, 'c', {
-      value: helperFunctions.c,
+  if (!Object.prototype.hasOwnProperty.call(target, helperOverrideKey)) {
+    Object.defineProperty(target, helperOverrideKey, {
+      value: undefined,
       writable: true,
-      configurable: true,
-      enumerable: true
+      enumerable: false,
+      configurable: true
     });
+  }
+
+  const descriptor = Object.getOwnPropertyDescriptor(target, 'c');
+  const needsInstall = !descriptor || descriptor.get !== helperGetter;
+
+  if (needsInstall) {
+    Object.defineProperty(target, 'c', {
+      enumerable: true,
+      configurable: true,
+      get: helperGetter,
+      set: helperSetter
+    });
+  } else if (typeof target[helperOverrideKey] !== 'function') {
+    target[helperOverrideKey] = undefined;
   }
 
   return target;
@@ -116,20 +143,15 @@ export async function generateDocxBuffer({templatePath, payload}) {
     ...(payload || {})
   };
 
-  if (typeof data.c !== 'function') {
-    data.c = helperFunctions.c;
-  }
-
   ensureHelper(data);
   const hadGlobalC = Object.prototype.hasOwnProperty.call(globalThis, 'c');
-  const previousGlobalC = globalThis.c;
+  const previousGlobalDescriptor = hadGlobalC
+    ? Object.getOwnPropertyDescriptor(globalThis, 'c')
+    : undefined;
+  const previousGlobalOverride = globalThis[helperOverrideKey];
 
-  Object.defineProperty(globalThis, 'c', {
-    value: helperFunctions.c,
-    configurable: true,
-    writable: true,
-    enumerable: false
-  });
+  ensureHelper(globalThis);
+  globalThis[helperOverrideKey] = helperFunctions.c;
 
   try {
     const out = await createReport({
@@ -143,13 +165,13 @@ export async function generateDocxBuffer({templatePath, payload}) {
   } finally {
     if (!hadGlobalC) {
       delete globalThis.c;
-    } else if (globalThis.c !== previousGlobalC) {
-      Object.defineProperty(globalThis, 'c', {
-        value: previousGlobalC,
-        configurable: true,
-        writable: true,
-        enumerable: false
-      });
+    } else if (previousGlobalDescriptor) {
+      Object.defineProperty(globalThis, 'c', previousGlobalDescriptor);
+    }
+    if (previousGlobalOverride === undefined) {
+      delete globalThis[helperOverrideKey];
+    } else {
+      globalThis[helperOverrideKey] = previousGlobalOverride;
     }
   }
 }

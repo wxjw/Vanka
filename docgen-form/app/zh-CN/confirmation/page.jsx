@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import styles from '../formStyles.module.css';
 
@@ -48,6 +49,7 @@ const PREVIEW_MAX_WIDTH = 900;
 // 画布像素（A4 近似像素）
 const CANVAS_WIDTH = 1240;
 const CANVAS_HEIGHT = 1754;
+const PREVIEW_RATIO = CANVAS_HEIGHT / CANVAS_WIDTH;
 
 // 章大小（预览层，以 px 表示）——PDF 会按比例严格匹配
 const STAMP_SIZE_MIN = 80;
@@ -81,7 +83,10 @@ export default function ConfirmationPage() {
   // 预览图（无章）
   const [previewImgUrl, setPreviewImgUrl] = useState('');
   const previewBoxRef = useRef(null);
-  const [previewBoxSize, setPreviewBoxSize] = useState({w: 0, h: 0});
+  const [previewBoxSize, setPreviewBoxSize] = useState(() => {
+    const defaultWidth = PREVIEW_MAX_WIDTH;
+    return {w: defaultWidth, h: Math.round(defaultWidth * PREVIEW_RATIO)};
+  });
 
   // 外部章图（可选）
   const [stampImg, setStampImg] = useState(null);
@@ -103,16 +108,16 @@ export default function ConfirmationPage() {
   useEffect(() => {
     const el = previewBoxRef.current;
     if (!el) return;
-    const resize = () => {
-      const w = Math.min(el.clientWidth, PREVIEW_MAX_WIDTH);
-      const ratio = CANVAS_HEIGHT / CANVAS_WIDTH;
-      setPreviewBoxSize({w, h: Math.round(w * ratio)});
+    const computeSize = () => {
+      const rawWidth = el.clientWidth || el.parentElement?.clientWidth || PREVIEW_MAX_WIDTH;
+      const width = Math.min(Math.max(rawWidth, 320), PREVIEW_MAX_WIDTH);
+      setPreviewBoxSize({w: width, h: Math.round(width * PREVIEW_RATIO)});
     };
-    resize();
-    const obs = new ResizeObserver(resize);
+    computeSize();
+    const obs = new ResizeObserver(computeSize);
     obs.observe(el);
     return () => obs.disconnect();
-  }, []);
+  }, [stage]);
 
   // 卸载清理 objectURL
   useEffect(() => {
@@ -301,7 +306,13 @@ export default function ConfirmationPage() {
 
   return (
     <main className={styles.page}>
-      <h1 className={styles.heading}>预定信息确认函</h1>
+      <header className={styles.topBar}>
+        <Link href="/" className={styles.backLink}>
+          <span className={styles.backIcon} aria-hidden>←</span>
+          返回首页
+        </Link>
+        <h1 className={styles.heading}>预定信息确认函</h1>
+      </header>
 
       <section style={{margin: '16px 0 24px'}}>
         <StepIndicator stageOrder={stageOrder} currentStage={stage} />
@@ -454,7 +465,8 @@ export default function ConfirmationPage() {
                   position: 'relative',
                   width: '100%',
                   maxWidth: PREVIEW_MAX_WIDTH,
-                  height: previewBoxSize.h
+                  height: previewBoxSize.h,
+                  minHeight: Math.max(Math.round(previewBoxSize.w * PREVIEW_RATIO * 0.25), 280)
                 }}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}

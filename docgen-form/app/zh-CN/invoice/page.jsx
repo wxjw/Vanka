@@ -25,6 +25,8 @@ export default function InvoicePage() {
     feeExclude: '',
     total: ''
   });
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState('');
 
   const onChange = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -110,8 +112,36 @@ export default function InvoicePage() {
     form.paymentDue
   ]);
 
+  const previewCurrency = computed.currency || 'SGD';
+  const previewQtyValue = form.qty?.trim() || (Number.isFinite(computed.qty) && computed.qty !== 0 ? String(computed.qty) : '');
+  const previewUnitPriceValue = form.unitPrice?.trim() || (Number.isFinite(computed.unit) && computed.unit !== 0 ? fmtMoney(computed.unit, previewCurrency) : '');
+  const previewAmountValue = form.amount?.trim() || computed.f.amount;
+  const previewUnitSubtotalValue = form.unitPriceTotal?.trim() || computed.f.unitPriceTotal;
+  const previewAmountSubtotalValue = form.amountTotal?.trim() || computed.f.amountTotal;
+  const previewTotalValue = form.total?.trim() || computed.f.total;
+  const previewItems = (form.description?.trim() || previewQtyValue || previewUnitPriceValue || previewAmountValue)
+    ? [
+        {
+          description: form.description?.trim() || '（未填写）',
+          qty: previewQtyValue || '—',
+          unitPrice: previewUnitPriceValue || '—',
+          amount: previewAmountValue || '—'
+        }
+      ]
+    : [];
+  const dueDisplay = form.paymentDue?.trim()
+    ? computed.daysToPay
+      ? `${form.paymentDue.trim()}（付款期限 ${computed.daysToPay} 天）`
+      : form.paymentDue.trim()
+    : computed.daysToPay
+      ? `付款期限 ${computed.daysToPay} 天`
+      : '—';
+  const currencyDisplay = (form.currency || computed.currency || 'SGD').trim().toUpperCase() || 'SGD';
+
   async function handleGenerate(event) {
     event.preventDefault();
+    setIsGenerating(true);
+    setError('');
 
     const currency = computed.currency;
     const normalizedCurrency = currency || 'SGD';
@@ -185,14 +215,18 @@ export default function InvoicePage() {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        alert('生成失败：' + (text || '未知错误'));
+        const message = text || '未知错误';
+        setError(`生成失败：${message}`);
+        alert('生成失败：' + message);
         return;
       }
 
       const blob = await res.blob();
       // 基本校验：返回的不是 JSON（错误页）而是文件
       if (!blob || blob.size === 0) {
-        alert('生成失败：返回空文件。');
+        const message = '返回空文件。';
+        setError(`生成失败：${message}`);
+        alert('生成失败：' + message);
         return;
       }
 
@@ -207,4 +241,352 @@ export default function InvoicePage() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       console.error('生成文档时出错:', err);
-      const message = err instanceof Error ? err.message : String
+      const message = err instanceof Error ? err.message : String(err);
+      const displayMessage = message || '未知错误';
+      setError(`生成失败：${displayMessage}`);
+      alert('生成失败：' + displayMessage);
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  return (
+    <main className={styles.page}>
+      <div className={styles.topBar}>
+        <Link href="/" className={styles.backLink}>
+          <span className={styles.backIcon} aria-hidden>
+            ←
+          </span>
+          返回首页
+        </Link>
+        <h1 className={styles.heading}>发票生成器</h1>
+      </div>
+
+      <div className={styles.layout}>
+        <form className={`${styles.card} ${styles.formCard}`} onSubmit={handleGenerate}>
+          <section>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>客户信息</h2>
+              <p className={styles.sectionHint}>填写发票抬头、联系方式与发票编号。</p>
+            </div>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>客户名称</span>
+                <input
+                  className={styles.textControl}
+                  value={form.clientName}
+                  onChange={event => onChange('clientName', event.target.value)}
+                  placeholder="如：示例科技有限公司"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>联系方式</span>
+                <input
+                  className={styles.textControl}
+                  value={form.contactInfo}
+                  onChange={event => onChange('contactInfo', event.target.value)}
+                  placeholder="邮箱或电话"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>发票编号</span>
+                <input
+                  className={styles.textControl}
+                  value={form.invoiceNo}
+                  onChange={event => onChange('invoiceNo', event.target.value)}
+                  placeholder="如：VK-2024-001"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>开票日期</span>
+                <input
+                  type="date"
+                  className={styles.textControl}
+                  value={form.dateOfIssue}
+                  onChange={event => onChange('dateOfIssue', event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>付款截止日期</span>
+                <input
+                  type="date"
+                  className={styles.textControl}
+                  value={form.paymentDue}
+                  onChange={event => onChange('paymentDue', event.target.value)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>币种</span>
+                <input
+                  className={styles.textControl}
+                  value={form.currency}
+                  onChange={event => onChange('currency', event.target.value)}
+                  placeholder="如：SGD"
+                />
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>项目负责人</h2>
+              <p className={styles.sectionHint}>用于发票底部展示的项目负责人信息。</p>
+            </div>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>姓名</span>
+                <input
+                  className={styles.textControl}
+                  value={form.projectLead_name}
+                  onChange={event => onChange('projectLead_name', event.target.value)}
+                  placeholder="如：张三"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>电话</span>
+                <input
+                  className={styles.textControl}
+                  value={form.projectLead_phone}
+                  onChange={event => onChange('projectLead_phone', event.target.value)}
+                  placeholder="例如：+65 1234 5678"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>邮箱</span>
+                <input
+                  type="email"
+                  className={styles.textControl}
+                  value={form.projectLead_email}
+                  onChange={event => onChange('projectLead_email', event.target.value)}
+                  placeholder="name@example.com"
+                />
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>服务条目</h2>
+              <p className={styles.sectionHint}>至少填写一行以生成发票条目，未填写时会自动忽略。</p>
+            </div>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>服务描述</span>
+                <textarea
+                  className={styles.textControl}
+                  value={form.description}
+                  onChange={event => onChange('description', event.target.value)}
+                  placeholder="例如：品牌营销顾问服务"
+                  rows={3}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>数量</span>
+                <input
+                  className={styles.textControl}
+                  value={form.qty}
+                  onChange={event => onChange('qty', event.target.value)}
+                  placeholder="如：10"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>单价</span>
+                <input
+                  className={styles.textControl}
+                  value={form.unitPrice}
+                  onChange={event => onChange('unitPrice', event.target.value)}
+                  placeholder="支持直接填写金额或格式化文本"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>金额</span>
+                <input
+                  className={styles.textControl}
+                  value={form.amount}
+                  onChange={event => onChange('amount', event.target.value)}
+                  placeholder="未填写则自动计算"
+                />
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>金额汇总</h2>
+              <p className={styles.sectionHint}>可填写自定义金额；留空时将根据自动计算结果填充。</p>
+            </div>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>小计（按单价）</span>
+                <input
+                  className={styles.textControl}
+                  value={form.unitPriceTotal}
+                  onChange={event => onChange('unitPriceTotal', event.target.value)}
+                  placeholder="示例：SGD 12,000.00"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>小计（按金额）</span>
+                <input
+                  className={styles.textControl}
+                  value={form.amountTotal}
+                  onChange={event => onChange('amountTotal', event.target.value)}
+                  placeholder="示例：SGD 12,000.00"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>费用包含</span>
+                <textarea
+                  className={styles.textControl}
+                  value={form.feeInclude}
+                  onChange={event => onChange('feeInclude', event.target.value)}
+                  placeholder="例如：方案策划、设计支持等"
+                  rows={3}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>费用不含</span>
+                <textarea
+                  className={styles.textControl}
+                  value={form.feeExclude}
+                  onChange={event => onChange('feeExclude', event.target.value)}
+                  placeholder="例如：第三方采购费用"
+                  rows={3}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>总计</span>
+                <input
+                  className={styles.textControl}
+                  value={form.total}
+                  onChange={event => onChange('total', event.target.value)}
+                  placeholder="示例：SGD 15,000.00"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>服务时间/备注</span>
+                <textarea
+                  className={styles.textControl}
+                  value={form.serviceDetailDate}
+                  onChange={event => onChange('serviceDetailDate', event.target.value)}
+                  placeholder="例如：服务周期 2024.06 - 2024.08"
+                  rows={2}
+                />
+              </label>
+            </div>
+          </section>
+
+          <div className={styles.buttonRow}>
+            <button type="submit" className={styles.primaryButton} disabled={isGenerating}>
+              {isGenerating ? '正在生成…' : '生成 DOCX 发票'}
+            </button>
+          </div>
+          {error ? <div className={styles.errorBanner}>{error}</div> : null}
+        </form>
+
+        <aside className={`${styles.card} ${styles.previewCard}`} aria-live="polite">
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>预览</h2>
+            <p className={styles.sectionHint}>系统将根据以下信息生成 DOCX 发票文件。</p>
+          </div>
+
+          <div className={styles.previewGroup}>
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>基本信息</h3>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>客户名称</span>
+                <span className={styles.previewValue}>{form.clientName?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>联系方式</span>
+                <span className={styles.previewValue}>{form.contactInfo?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>发票编号</span>
+                <span className={styles.previewValue}>{form.invoiceNo?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>开票日期</span>
+                <span className={styles.previewValue}>{form.dateOfIssue?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>付款截止</span>
+                <span className={styles.previewValue}>{dueDisplay}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>币种</span>
+                <span className={styles.previewValue}>{currencyDisplay}</span>
+              </div>
+            </section>
+
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>项目负责人</h3>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>姓名</span>
+                <span className={styles.previewValue}>{form.projectLead_name?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>电话</span>
+                <span className={styles.previewValue}>{form.projectLead_phone?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>邮箱</span>
+                <span className={styles.previewValue}>{form.projectLead_email?.trim() || '—'}</span>
+              </div>
+            </section>
+
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>服务条目</h3>
+              {previewItems.length ? (
+                previewItems.map((item, index) => (
+                  <div key={index} className={styles.previewItem}>
+                    <span className={styles.previewLabel}>条目 {index + 1}</span>
+                    <span className={styles.previewValue}>
+                      {item.description}
+                      {'\n'}数量：{item.qty || '—'}
+                      {'\n'}单价：{item.unitPrice || '—'}
+                      {'\n'}金额：{item.amount || '—'}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className={styles.previewItem}>
+                  <span className={styles.previewLabel}>条目</span>
+                  <span className={styles.previewValue}>暂未填写服务条目。</span>
+                </div>
+              )}
+            </section>
+
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>金额汇总</h3>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>小计（单价）</span>
+                <span className={styles.previewValue}>{previewUnitSubtotalValue || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>小计（金额）</span>
+                <span className={styles.previewValue}>{previewAmountSubtotalValue || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>费用包含</span>
+                <span className={styles.previewValue}>{form.feeInclude?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>费用不含</span>
+                <span className={styles.previewValue}>{form.feeExclude?.trim() || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>总计</span>
+                <span className={styles.previewValue}>{previewTotalValue || '—'}</span>
+              </div>
+              <div className={styles.previewItem}>
+                <span className={styles.previewLabel}>服务时间 / 备注</span>
+                <span className={styles.previewValue}>{form.serviceDetailDate?.trim() || '—'}</span>
+              </div>
+            </section>
+          </div>
+        </aside>
+      </div>
+    </main>
+  );
+}

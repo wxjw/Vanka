@@ -1,6 +1,7 @@
 'use client';
 
 import {useMemo, useState} from 'react';
+import styles from '../formStyles.module.css';
 
 // 定义流程的各个阶段
 const STAGES = {
@@ -11,19 +12,19 @@ const STAGES = {
 
 // 定义表单的所有字段
 const FORM_FIELDS = [
-  {label: '收件人姓名', key: 'recipientName'},
-  {label: '确认单编号（项目编号）', key: 'referenceNo'},
+  {label: '收件人姓名', key: 'recipientName', placeholder: '请输入收件人姓名'},
+  {label: '确认单编号（项目编号）', key: 'referenceNo', placeholder: '如：VK-2024-001'},
   {label: '出具日期', key: 'issueDate', type: 'date'},
   {label: '定金支付截止日期', key: 'payByDate', type: 'date'},
-  {label: '定金金额（CNY）', key: 'payAmountCNY'},
-  {label: '大写金额', key: 'payAmountUppercase'},
+  {label: '定金金额（CNY）', key: 'payAmountCNY', placeholder: '例如：3000'},
+  {label: '大写金额', key: 'payAmountUppercase', placeholder: '例如：叁仟元整'},
   {label: '联系人姓名', key: 'contactName'},
   {label: '联系人电话', key: 'contactPhone'},
-  {label: '联系人邮箱', key: 'contactEmail'},
-  {label: '行程信息', key: 'itinerary', multiline: true},
-  {label: '限制信息', key: 'restrictions', multiline: true},
-  {label: '其他信息', key: 'others', multiline: true},
-  {label: '备注', key: 'remark', multiline: true}
+  {label: '联系人邮箱', key: 'contactEmail', type: 'email'},
+  {label: '行程信息', key: 'itinerary', multiline: true, placeholder: '示例：2024/08/18-2024/08/21 西藏行程…'},
+  {label: '限制信息', key: 'restrictions', multiline: true, placeholder: '例如：机票不可退改、需提前确认…'},
+  {label: '其他信息', key: 'others', multiline: true, placeholder: '可填写额外说明'},
+  {label: '备注', key: 'remark', multiline: true, placeholder: '填写内部备注或补充信息'}
 ];
 
 // 阶段对应的显示文本
@@ -57,6 +58,17 @@ export default function ConfirmationPage() {
     setForm(prev => ({...prev, [key]: value}));
   };
 
+  const handleBrandChange = event => {
+    const next = event.target.value;
+    setBrand(next);
+    if (stage !== STAGES.FORM) {
+      setStage(STAGES.FORM);
+      setError('');
+      updatePreviewPdf(null);
+      updateStampedPdf(null);
+    }
+  };
+
   // 更新预览PDF，并管理Blob URL的创建和销毁
   const updatePreviewPdf = blob => {
     setPreviewPdf(prev => {
@@ -76,8 +88,8 @@ export default function ConfirmationPage() {
   };
 
   // 处理生成预览的事件
-  const handlePreview = async e => {
-    e.preventDefault();
+  const handlePreview = async event => {
+    event.preventDefault();
     setIsGenerating(true);
     setError('');
     try {
@@ -133,68 +145,108 @@ export default function ConfirmationPage() {
 
   // 根据当前阶段决定显示哪个PDF的URL
   const activePdfUrl = stage === STAGES.STAMPED ? stampedPdf?.url : previewPdf?.url;
+  const hasPreview = Boolean(previewPdf);
 
   return (
-    <main>
-      <h1>预定信息确认函</h1>
+    <main className={styles.page}>
+      <h1 className={styles.heading}>预定信息确认函</h1>
 
       <section style={{margin: '16px 0 24px'}}>
         <StepIndicator stageOrder={stageOrder} currentStage={stage} />
       </section>
 
-      <div style={{margin: '12px 0', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center'}}>
-        <label htmlFor="brand-select" style={{fontWeight: 600}}>模板品牌：</label>
-        <select
-          id="brand-select"
-          value={brand}
-          onChange={e => {
-            setBrand(e.target.value);
-            // 如果切换品牌，则重置回表单填写阶段
-            if (stage !== STAGES.FORM) {
-              setStage(STAGES.FORM);
-              updatePreviewPdf(null);
-              updateStampedPdf(null);
-            }
-          }}
-          style={{padding: '8px 12px', fontSize: 16}}
-        >
+      <div className={styles.brandSelector} style={{marginBottom: 20}}>
+        <span className={styles.fieldLabel}>模板品牌</span>
+        <select className={styles.selectControl} value={brand} onChange={handleBrandChange}>
           <option value="vanka">万咖</option>
           <option value="duoji">多吉</option>
         </select>
       </div>
 
-      <ErrorBanner message={error} />
+      {error && <ErrorBanner message={error} />}
 
-      {stage === STAGES.FORM && (
-        <form onSubmit={handlePreview} style={{maxWidth: 960}}>
-          {FORM_FIELDS.map(field => (
-            <FieldRow
-              key={field.key}
-              field={field}
-              value={form[field.key]}
-              onChange={onChange}
-            />
-          ))}
+      {stage === STAGES.FORM ? (
+        <div className={styles.layout}>
+          <form onSubmit={handlePreview} className={`${styles.card} ${styles.formCard}`}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>填写确认函信息</h2>
+              <p className={styles.sectionHint}>请根据业务需求完整填写，右侧将即时同步预览效果。</p>
+            </div>
 
-          <div style={{marginTop: 24, display: 'flex', gap: 12}}>
-            <button
-              type="submit"
-              style={{padding: '12px 20px', fontSize: 16}}
-              disabled={isGenerating}
-            >
-              {isGenerating ? '生成中…' : '生成 PDF 预览'}
-            </button>
+            <section className={styles.fieldGrid}>
+              {FORM_FIELDS.map(field => (
+                <FormField
+                  key={field.key}
+                  field={field}
+                  value={form[field.key]}
+                  onChange={onChange}
+                />
+              ))}
+            </section>
+
+            <div className={styles.buttonRow}>
+              <button type="submit" className={styles.primaryButton} disabled={isGenerating}>
+                {isGenerating ? '生成中…' : hasPreview ? '重新生成 PDF 预览' : '生成 PDF 预览'}
+              </button>
+            </div>
+          </form>
+
+          <aside className={`${styles.card} ${styles.previewCard}`}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>即时预览</h2>
+              <p className={styles.sectionHint}>实时核对填写内容，确认无误后生成文档。</p>
+            </div>
+
+            <div className={styles.previewGroup}>
+              <section className={styles.previewSection}>
+                <h3 className={styles.previewSectionTitle}>基础信息</h3>
+                {previewRow('收件人姓名', form.recipientName)}
+                {previewRow('确认单编号', form.referenceNo)}
+                {previewRow('出具日期', form.issueDate)}
+                {previewRow('定金支付截止日期', form.payByDate)}
+                {previewRow('定金金额（CNY）', form.payAmountCNY)}
+                {previewRow('金额大写', form.payAmountUppercase)}
+              </section>
+
+              <section className={styles.previewSection}>
+                <h3 className={styles.previewSectionTitle}>联系人</h3>
+                {previewRow('姓名', form.contactName)}
+                {previewRow('电话', form.contactPhone)}
+                {previewRow('邮箱', form.contactEmail)}
+              </section>
+
+              <section className={styles.previewSection}>
+                <h3 className={styles.previewSectionTitle}>详细信息</h3>
+                {previewRow('行程信息', form.itinerary)}
+                {previewRow('限制信息', form.restrictions)}
+                {previewRow('其他信息', form.others)}
+                {previewRow('备注', form.remark)}
+                {previewRow('品牌模板', brand === 'vanka' ? '万咖' : '多吉')}
+              </section>
+            </div>
+          </aside>
+        </div>
+      ) : (
+        <section className={`${styles.card} ${styles.formCard}`} style={{marginTop: 24}}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>
+              {stage === STAGES.PREVIEW ? '预览 PDF' : '盖章与下载'}
+            </h2>
+            <p className={styles.sectionHint}>
+              {stage === STAGES.PREVIEW
+                ? '请确认生成的 PDF 内容，确认无误后执行盖章。'
+                : '已完成盖章，可下载正式 PDF，或返回修改。'}
+            </p>
           </div>
-        </form>
-      )}
 
-      {stage !== STAGES.FORM && (
-        <section style={{marginTop: 32}}>
-          <div style={{marginBottom: 16, color: '#444'}}>
-            {stage === STAGES.PREVIEW ? '请确认预览（尚未盖章）' : '以下为已盖章的正式 PDF'}
-          </div>
-
-          <div style={{border: '1px solid #d0d7de', borderRadius: 6, overflow: 'hidden', background: '#fafafa'}}>
+          <div
+            style={{
+              border: '1px solid #d0d7de',
+              borderRadius: 12,
+              overflow: 'hidden',
+              background: '#f8fafc'
+            }}
+          >
             {activePdfUrl ? (
               <iframe
                 title="confirmation-preview"
@@ -202,20 +254,21 @@ export default function ConfirmationPage() {
                 style={{width: '100%', minHeight: 720, border: 'none'}}
               />
             ) : (
-              <div style={{padding: '48px 24px', textAlign: 'center', color: '#666'}}>
+              <div style={{padding: '48px 24px', textAlign: 'center', color: '#64748b'}}>
                 暂无预览内容
               </div>
             )}
           </div>
 
-          <div style={{marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap'}}>
+          <div style={{marginTop: 24, display: 'flex', gap: 12, flexWrap: 'wrap'}}>
             <button
               type="button"
+              className={styles.primaryButton}
+              style={{padding: '12px 22px'}}
               onClick={() => {
                 setStage(STAGES.FORM);
                 setError('');
               }}
-              style={{padding: '10px 18px', fontSize: 15}}
               disabled={isGenerating}
             >
               返回表单编辑
@@ -224,8 +277,9 @@ export default function ConfirmationPage() {
             {stage === STAGES.PREVIEW && (
               <button
                 type="button"
+                className={styles.primaryButton}
+                style={{padding: '12px 22px'}}
                 onClick={handleStamp}
-                style={{padding: '10px 18px', fontSize: 15}}
                 disabled={isGenerating}
               >
                 {isGenerating ? '盖章中…' : '盖章'}
@@ -233,28 +287,30 @@ export default function ConfirmationPage() {
             )}
 
             {stage === STAGES.STAMPED && (
-              <button
-                type="button"
-                onClick={handleDownload}
-                style={{padding: '10px 18px', fontSize: 15}}
-                disabled={isGenerating}
-              >
-                下载 PDF
-              </button>
-            )}
+              <>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  style={{padding: '12px 22px'}}
+                  onClick={handleDownload}
+                  disabled={isGenerating}
+                >
+                  下载 PDF
+                </button>
 
-            {stage === STAGES.STAMPED && (
-              <button
-                type="button"
-                onClick={() => {
-                  setStage(STAGES.PREVIEW);
-                  setError('');
-                }}
-                style={{padding: '10px 18px', fontSize: 15}}
-                disabled={isGenerating}
-              >
-                返回预览
-              </button>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  style={{padding: '12px 22px'}}
+                  onClick={() => {
+                    setStage(STAGES.PREVIEW);
+                    setError('');
+                  }}
+                  disabled={isGenerating}
+                >
+                  返回预览
+                </button>
+              </>
             )}
           </div>
         </section>
@@ -263,39 +319,36 @@ export default function ConfirmationPage() {
   );
 }
 
-// 表单行组件
-function FieldRow({field, value, onChange}) {
-  const isTextarea = Boolean(field.multiline);
+// 表单字段输入组件
+function FormField({field, value, onChange}) {
+  const inputProps = {
+    className: styles.textControl,
+    placeholder: field.placeholder || '',
+    value: value || '',
+    onChange: event => onChange(field.key, event.target.value)
+  };
+
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '260px 1fr',
-        gap: 12,
-        alignItems: isTextarea ? 'start' : 'center',
-        marginBottom: 14
-      }}
-    >
-      <label style={{fontWeight: 600}} htmlFor={`field-${field.key}`}>
+    <div className={styles.field}>
+      <label className={styles.fieldLabel} htmlFor={`field-${field.key}`}>
         {field.label}
       </label>
-      {isTextarea ? (
-        <textarea
-          id={`field-${field.key}`}
-          rows={5}
-          style={{width: '100%', fontSize: 14, padding: 8, resize: 'vertical'}}
-          value={value}
-          onChange={e => onChange(field.key, e.target.value)}
-        />
+      {field.multiline ? (
+        <textarea {...inputProps} id={`field-${field.key}`} rows={4} />
       ) : (
-        <input
-          id={`field-${field.key}`}
-          type={field.type || 'text'}
-          style={{width: '100%', fontSize: 14, padding: 8}}
-          value={value}
-          onChange={e => onChange(field.key, e.target.value)}
-        />
+        <input {...inputProps} id={`field-${field.key}`} type={field.type || 'text'} />
       )}
+    </div>
+  );
+}
+
+function previewRow(label, value) {
+  const display = value == null ? '' : typeof value === 'string' ? value : String(value);
+  const content = display.trim() ? display : '—';
+  return (
+    <div className={styles.previewItem}>
+      <div className={styles.previewLabel}>{label}</div>
+      <div className={styles.previewValue}>{content}</div>
     </div>
   );
 }
@@ -305,22 +358,8 @@ function ErrorBanner({message}) {
   if (!message) return null;
 
   return (
-    <div
-      role="alert"
-      aria-live="assertive"
-      style={{
-        margin: '16px 0',
-        padding: '12px 16px',
-        border: '1px solid #f5c2c7',
-        background: '#f8d7da',
-        color: '#842029',
-        borderRadius: 6,
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 12
-      }}
-    >
-      <span style={{fontWeight: 700}}>提示</span>
+    <div role="alert" aria-live="assertive" className={styles.errorBanner}>
+      <strong style={{marginRight: 8}}>提示</strong>
       <span>{message}</span>
     </div>
   );

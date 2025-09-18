@@ -80,12 +80,18 @@ function ensureHelper(target) {
   const descriptor = Object.getOwnPropertyDescriptor(target, 'c');
   const needsInstall = !descriptor || descriptor.get !== helperGetter;
   if (needsInstall) {
+    const existingValue = descriptor && 'value' in descriptor ? descriptor.value : undefined;
     Object.defineProperty(target, 'c', {
       enumerable: true,
       configurable: true,
       get: helperGetter,
       set: helperSetter
     });
+    if (typeof existingValue === 'function') {
+      target[helperOverrideKey] = existingValue;
+    } else {
+      target[helperOverrideKey] = undefined;
+    }
   } else if (typeof target[helperOverrideKey] !== 'function') {
     target[helperOverrideKey] = undefined;
   }
@@ -121,21 +127,47 @@ export async function generateDocxBuffer({templatePath, payload}) {
   const buf = await readFile(templatePath);
   const normalized = await normalizeDocxDelimiters(buf);
 
-  // 合并策略：使用安全的 payload 展开，并直接注入功能更强大的 c 函数
-  const data = {
-    ...(payload || {}),
-    c: helperFunctions.c
-  };
+  const payloadObject = payload && typeof payload === 'object' ? payload : {};
+  const hasCustomC = typeof payloadObject.c === 'function';
+  const data = ensureHelper({...payloadObject});
 
-  const out = await createReport({
-    template: normalized,
-    data,
-    // 保留 cmdDelimiter 配置
-    cmdDelimiter: ['{', '}'],
-    // 使用简洁的调用方式，无需 additionalJsContext
-    runJs: createJsRuntime()
+  if (hasCustomC) {
+    data.c = payloadObject.c;
+  } else {
+    data.c = helperFunctions.c;
+  }
+
+  const hadGlobalC = Object.prototype.hasOwnProperty.call(globalThis, 'c');
+  const previousGlobalC = globalThis.c;
+
+  Object.defineProperty(globalThis, 'c', {
+    value: helperFunctions.c,
+    configurable: true,
+    writable: true,
+    enumerable: false
   });
-  return Buffer.from(out);
+
+  try {
+    const out = await createReport({
+      template: normalized,
+      data,
+      cmdDelimiter: ['{', '}'],
+      additionalJsContext: helperFunctions,
+      runJs: createJsRuntime()
+    });
+    return Buffer.from(out);
+  } finally {
+    if (!hadGlobalC) {
+      delete globalThis.c;
+    } else if (globalThis.c !== previousGlobalC) {
+      Object.defineProperty(globalThis, 'c', {
+        value: previousGlobalC,
+        configurable: true,
+        writable: true,
+        enumerable: false
+      });
+    }
+  }
 }
 
 // 导出内部函数用于测试

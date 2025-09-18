@@ -18,10 +18,113 @@ function toSafeString(value) {
   return String(value);
 }
 
-// 占位：如需规范 docx 分隔符，可在此真正实现
+const BRACKET_TOKEN_PATTERN = /\[(#?\/?)([A-Za-z0-9_.-]+?)\]/g;
+
+function deriveLoopAlias(loopName, activeAliases) {
+  let base = loopName.includes('.') ? loopName.split('.').pop() || loopName : loopName;
+  if (base.endsWith('ies') && base.length > 3) {
+    base = `${base.slice(0, -3)}y`;
+  } else if (base.endsWith('ses') && base.length > 3) {
+    base = base.slice(0, -2);
+  } else if (base.endsWith('s') && base.length > 1) {
+    base = base.slice(0, -1);
+  }
+
+  base = base.replace(/[^A-Za-z0-9_]/g, '');
+  if (!base || !/^[A-Za-z_]/.test(base)) {
+    base = 'item';
+  }
+
+  let alias = base;
+  let suffix = 1;
+  while (activeAliases.has(alias)) {
+    suffix += 1;
+    alias = `${base}${suffix}`;
+  }
+  activeAliases.add(alias);
+  return alias;
+}
+
+function releaseLoopAlias(alias, activeAliases) {
+  activeAliases.delete(alias);
+}
+
+function needsLoopContext(body) {
+  return body && !body.includes('.') && !body.includes('-');
+}
+
+function accessFromAlias(alias, body) {
+  const safeBody = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(body)
+    ? `.${body}`
+    : `[${JSON.stringify(body)}]`;
+  return `$${alias}${safeBody}`;
+}
+
+function rewriteBracketTokens(content) {
+  const activeAliases = new Set();
+  const loopStack = [];
+  let lastIndex = 0;
+  let mutated = false;
+  let result = '';
+
+  for (const match of content.matchAll(BRACKET_TOKEN_PATTERN)) {
+    const [full, prefix, body] = match;
+    const index = match.index ?? 0;
+    result += content.slice(lastIndex, index);
+
+    if (prefix === '#') {
+      const alias = deriveLoopAlias(body, activeAliases);
+      loopStack.push({ name: body, alias });
+      result += `{FOR ${alias} IN ${body}}`;
+      mutated = true;
+    } else if (prefix === '/') {
+      const last = loopStack.pop();
+      const alias = last?.alias || body;
+      if (last) releaseLoopAlias(last.alias, activeAliases);
+      result += `{END-FOR ${alias}}`;
+      mutated = true;
+    } else {
+      let replacement;
+      if (loopStack.length > 0 && needsLoopContext(body)) {
+        const current = loopStack[loopStack.length - 1];
+        replacement = `{${accessFromAlias(current.alias, body)}}`;
+      } else {
+        replacement = `{${body}}`;
+      }
+      result += replacement;
+      mutated = true;
+    }
+
+    lastIndex = index + full.length;
+  }
+
+  if (lastIndex === 0) return { mutated: false, content };
+
+  result += content.slice(lastIndex);
+  return { mutated, content: result };
+}
+
 async function normalizeDocxDelimiters(buffer) {
-  console.warn('normalizeDocxDelimiters is a stub and does not perform any action.');
-  return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  let mutated = false;
+
+  const entries = Object.entries(zip.files);
+  for (const [filePath, file] of entries) {
+    if (file.dir) continue;
+    if (!filePath.toLowerCase().endsWith('.xml')) continue;
+
+    const original = await file.async('string');
+    const { mutated: fileMutated, content } = rewriteBracketTokens(original);
+    if (fileMutated) {
+      zip.file(filePath, content);
+      mutated = true;
+    }
+  }
+
+  if (!mutated) return buffer;
+
+  const normalized = await zip.generateAsync({ type: 'nodebuffer' });
+  return Buffer.from(normalized);
 }
 
 // 兼容 ESM / CJS 的导出形式

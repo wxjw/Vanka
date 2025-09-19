@@ -1,7 +1,21 @@
 'use client';
+
 import Image from 'next/image';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+
 import styles from './home.module.css';
+
+const BRAND_LOGO_SOURCES = {
+  png: {
+    src: '/branding/vanka-logo.png',
+    unoptimized: false
+  },
+  svg: {
+    src: '/branding/vanka-logo.svg',
+    unoptimized: true
+  }
+};
 
 const CARDS = [
   {
@@ -63,18 +77,46 @@ const CARDS = [
 ];
 
 export default function Home() {
+  const [logoSource, setLogoSource] = useState(() => BRAND_LOGO_SOURCES.svg);
+
+  useEffect(() => {
+    let isMounted = true;
+    const probe = new window.Image();
+    probe.src = BRAND_LOGO_SOURCES.png.src;
+    probe.onload = () => {
+      if (isMounted) {
+        setLogoSource(BRAND_LOGO_SOURCES.png);
+      }
+    };
+    probe.onerror = () => {
+      if (isMounted && process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.warn('PNG logo not found – keeping bundled SVG fallback.');
+      }
+    };
+
+    return () => {
+      isMounted = false;
+      probe.onload = null;
+      probe.onerror = null;
+    };
+  }, []);
+
   return (
     <main className={styles.page}>
       <div className={styles.frame}>
         <header className={styles.appBar}>
           <Link href="/" className={styles.brand} aria-label="Vanka 首页">
             <Image
-              src="/branding/vanka-logo.svg"
+              key={logoSource.src}
+              src={logoSource.src}
               alt="Vanka"
-              width={132}
-              height={28}
+              width={264}
+              height={56}
+              sizes="(max-width: 768px) 44vw, 152px"
               className={styles.brandLogo}
               priority
+              unoptimized={logoSource.unoptimized}
             />
           </Link>
           <Link href="#templates" className={styles.appBarAction}>

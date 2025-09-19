@@ -9,7 +9,7 @@ import styles from './home.module.css';
 const BRAND_LOGO_SOURCES = [
   {
     src: '/branding/vanka-logo.png',
-    unoptimized: false
+    unoptimized: true
   },
   {
     src: '/branding/vanka-logo.svg',

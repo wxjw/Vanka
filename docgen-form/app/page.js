@@ -2,20 +2,20 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useCallback, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import styles from './home.module.css';
 
-const BRAND_LOGO_SOURCES = [
-  {
+const BRAND_LOGO_SOURCES = {
+  png: {
     src: '/branding/vanka-logo.png',
     unoptimized: false
   },
-  {
+  svg: {
     src: '/branding/vanka-logo.svg',
     unoptimized: true
   }
-];
+};
 
 const CARDS = [
   {
@@ -77,25 +77,29 @@ const CARDS = [
 ];
 
 export default function Home() {
-  const [logoSourceIndex, setLogoSourceIndex] = useState(0);
+  const [logoSource, setLogoSource] = useState(() => BRAND_LOGO_SOURCES.svg);
 
-  const activeLogoSource = useMemo(
-    () => BRAND_LOGO_SOURCES[logoSourceIndex] ?? BRAND_LOGO_SOURCES[0],
-    [logoSourceIndex]
-  );
-
-  const handleLogoError = useCallback(() => {
-    setLogoSourceIndex(currentIndex => {
-      const nextIndex = currentIndex + 1;
-      if (nextIndex < BRAND_LOGO_SOURCES.length) {
-        if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.warn('Falling back to bundled SVG logo because the PNG asset is unavailable.');
-        }
-        return nextIndex;
+  useEffect(() => {
+    let isMounted = true;
+    const probe = new window.Image();
+    probe.src = BRAND_LOGO_SOURCES.png.src;
+    probe.onload = () => {
+      if (isMounted) {
+        setLogoSource(BRAND_LOGO_SOURCES.png);
       }
-      return currentIndex;
-    });
+    };
+    probe.onerror = () => {
+      if (isMounted && process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.warn('PNG logo not found – keeping bundled SVG fallback.');
+      }
+    };
+
+    return () => {
+      isMounted = false;
+      probe.onload = null;
+      probe.onerror = null;
+    };
   }, []);
 
   return (
@@ -104,16 +108,15 @@ export default function Home() {
         <header className={styles.appBar}>
           <Link href="/" className={styles.brand} aria-label="Vanka 首页">
             <Image
-              key={activeLogoSource.src}
-              src={activeLogoSource.src}
+              key={logoSource.src}
+              src={logoSource.src}
               alt="Vanka"
               width={264}
               height={56}
               sizes="(max-width: 768px) 44vw, 152px"
               className={styles.brandLogo}
               priority
-              onError={logoSourceIndex + 1 < BRAND_LOGO_SOURCES.length ? handleLogoError : undefined}
-              unoptimized={activeLogoSource.unoptimized}
+              unoptimized={logoSource.unoptimized}
             />
           </Link>
           <Link href="#templates" className={styles.appBarAction}>

@@ -9,7 +9,7 @@ import styles from './home.module.css';
 const BRAND_LOGO_SOURCES = [
   {
     src: '/branding/vanka-logo.png',
-    unoptimized: false
+    unoptimized: true
   },
   {
     src: '/branding/vanka-logo.svg',
@@ -96,6 +96,13 @@ export default function Home() {
 
   return (
     <main className={styles.page}>
+      <div className={styles.ambientBackdrop} aria-hidden>
+        <span className={`${styles.ambientOrb} ${styles.orbPrimary}`} />
+        <span className={`${styles.ambientOrb} ${styles.orbSecondary}`} />
+        <span className={`${styles.ambientOrb} ${styles.orbTertiary}`} />
+        <span className={`${styles.glassStreak} ${styles.streakOne}`} />
+        <span className={`${styles.glassStreak} ${styles.streakTwo}`} />
+      </div>
       <div className={styles.frame}>
         <header className={styles.appBar}>
           <Link href="/" className={styles.brand} aria-label="Vanka 首页">

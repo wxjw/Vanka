@@ -1,0 +1,21 @@
+<svg width="264" height="56" viewBox="0 0 264 56" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="vankaLogoTitle vankaLogoDesc">
+  <title id="vankaLogoTitle">Vanka</title>
+  <desc id="vankaLogoDesc">Vanka wordmark with gradient accent underline</desc>
+  <defs>
+    <linearGradient id="vankaGradient" x1="0" y1="0" x2="264" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F46E5" />
+      <stop offset="1" stop-color="#7C3AED" />
+    </linearGradient>
+    <linearGradient id="underlineGradient" x1="40" y1="48" x2="224" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38BDF8" />
+      <stop offset="1" stop-color="#4C1D95" />
+    </linearGradient>
+  </defs>
+  <path d="M30.912 15.2h6.288l9.456 24.96h-6.24l-2.064-5.904h-9.552l-2.064 5.904h-6.048l9.216-24.96Zm5.616 14.88-3.168-9.168-3.168 9.168h6.336Z" fill="url(#vankaGradient)" />
+  <path d="M57.76 15.2h5.76l3.392 12.224L70.4 15.2h5.536l-6.272 16.096v8.864h-5.76v-8.864L57.76 15.2Z" fill="url(#vankaGradient)" />
+  <path d="M95.056 15.2h5.76v24.96h-5.76V15.2Z" fill="url(#vankaGradient)" />
+  <path d="M110.208 15.2h5.76l7.344 13.104V15.2h5.664v24.96h-5.088l-7.968-13.968v13.968h-5.712V15.2Z" fill="url(#vankaGradient)" />
+  <path d="M150.752 14.896c6.336 0 10.848 4.656 10.848 12.736 0 8.064-4.512 12.816-10.848 12.816-6.384 0-10.896-4.752-10.896-12.816 0-8.08 4.512-12.736 10.896-12.736Zm0 20.128c3.264 0 5.088-2.88 5.088-7.392 0-4.528-1.824-7.296-5.088-7.296-3.312 0-5.136 2.768-5.136 7.296 0 4.512 1.824 7.392 5.136 7.392Z" fill="url(#vankaGradient)" />
+  <path d="M175.312 15.2h5.904l3.36 12.144L188 15.2h5.472l-6.576 16.464 7.152 8.496h-6.912l-3.888-4.944-3.936 4.944h-6.528l7.04-8.592-6.512-16.368Z" fill="url(#vankaGradient)" />
+  <rect x="40" y="44" width="184" height="4" rx="2" fill="url(#underlineGradient)" opacity="0.75" />
+</svg>

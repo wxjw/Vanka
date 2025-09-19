@@ -71,8 +71,9 @@ export default function Home() {
             <Image
               src="/branding/vanka-logo.svg"
               alt="Vanka"
-              width={132}
-              height={28}
+              width={264}
+              height={56}
+              sizes="(max-width: 768px) 44vw, 152px"
               className={styles.brandLogo}
               priority
             />

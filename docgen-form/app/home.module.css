@@ -61,8 +61,11 @@
 }
 
 .brandLogo {
-  height: auto;
   width: clamp(112px, 14vw, 152px);
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 264 / 56;
+  image-rendering: auto;
 }
 
 .appBarAction {

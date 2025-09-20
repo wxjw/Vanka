@@ -406,6 +406,7 @@
 .card {
   position: relative;
   background: linear-gradient(160deg, rgba(248, 246, 242, 0.9), rgba(232, 236, 236, 0.82));
+
   backdrop-filter: blur(24px);
   border-radius: 16px;
   padding: 22px clamp(18px, 4vw, 26px);

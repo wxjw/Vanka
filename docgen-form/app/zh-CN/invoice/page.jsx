@@ -17,7 +17,6 @@ const CURRENCY_OPTIONS = [
 ];
 
 const DEFAULT_BLOCK_LABELS = {
-  projectNameTitle: '项目名称',
   serviceDetailTitle: '行程與服務詳情',
   feeIncludeTitle: '费用包含',
   feeExcludeTitle: '费用不含'
@@ -68,15 +67,10 @@ export default function InvoicePage() {
     dateOfIssue: todayIso,
     paymentDue: '',
     currency: 'SGD',
-    description: '',
-    qty: '',
-    unitPrice: '',
-    amount: '',
-    unitPriceTotal: '',
-    amountTotal: '',
     total: '',
-    projectNameTitle: DEFAULT_BLOCK_LABELS.projectNameTitle,
-    projectName: '',
+    priceItems: [
+      { description: '', qty: '', unitPrice: '', amount: '' }
+    ],
     serviceDetailTitle: DEFAULT_BLOCK_LABELS.serviceDetailTitle,
     serviceDetail: '',
     feeIncludeTitle: DEFAULT_BLOCK_LABELS.feeIncludeTitle,
@@ -92,6 +86,33 @@ export default function InvoicePage() {
   const [selectedBankCurrency, setSelectedBankCurrency] = useState('');
 
   const onChange = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+
+  const updatePriceItem = (index, key, value) => {
+    setForm(prev => {
+      const items = Array.isArray(prev.priceItems) ? prev.priceItems : [];
+      const nextItems = items.map((item, idx) => (idx === index ? { ...item, [key]: value } : item));
+      return { ...prev, priceItems: nextItems };
+    });
+  };
+
+  const addPriceItem = () => {
+    setForm(prev => {
+      const items = Array.isArray(prev.priceItems) ? prev.priceItems : [];
+      return {
+        ...prev,
+        priceItems: [...items, { description: '', qty: '', unitPrice: '', amount: '' }]
+      };
+    });
+  };
+
+  const removePriceItem = index => {
+    setForm(prev => {
+      const items = Array.isArray(prev.priceItems) ? prev.priceItems : [];
+      if (items.length <= 1) return prev;
+      const nextItems = items.filter((_, idx) => idx !== index);
+      return { ...prev, priceItems: nextItems };
+    });
+  };
 
   useEffect(() => {
     let canceled = false;
@@ -194,7 +215,15 @@ export default function InvoicePage() {
   const computed = useMemo(() => {
     const toNumber = value => {
       if (value == null) return 0;
-      const numeric = parseFloat(String(value).replace(/,/g, ''));
+      if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : 0;
+      }
+      const cleaned = String(value)
+        .replace(/\s+/g, ' ')
+        .replace(/[^0-9.,-]/g, '')
+        .replace(/,/g, '');
+      if (!cleaned) return 0;
+      const numeric = parseFloat(cleaned);
       return Number.isFinite(numeric) ? numeric : 0;
     };
 
@@ -222,15 +251,75 @@ export default function InvoicePage() {
       return Number.isFinite(ms) ? ms : null;
     };
 
-    const qty = toNumber(form.qty);
-    const unit = toNumber(form.unitPrice);
-    const amountCalc = qty * unit;
-    const amount = toNumber(form.amount) || amountCalc;
-    const unitPriceTotal = toNumber(form.unitPriceTotal) || amountCalc;
-    const amountTotal = toNumber(form.amountTotal) || amount;
-    const total = toNumber(form.total) || amountTotal;
-
     const currency = (form.currency || 'SGD').trim().toUpperCase() || 'SGD';
+
+    const priceItemsSource = Array.isArray(form.priceItems) ? form.priceItems : [];
+    const normalizedItems = priceItemsSource.map(item => {
+      const description = typeof item?.description === 'string' ? item.description : '';
+      const qtyInput = typeof item?.qty === 'string' ? item.qty : '';
+      const unitPriceInput = typeof item?.unitPrice === 'string' ? item.unitPrice : '';
+      const amountInput = typeof item?.amount === 'string' ? item.amount : '';
+
+      const qtyDisplay = qtyInput.trim();
+      const unitPriceDisplay = unitPriceInput.trim();
+      const amountDisplay = amountInput.trim();
+
+      const qtyNumber = toNumber(qtyInput);
+      const unitPriceNumber = toNumber(unitPriceInput);
+      const hasManualAmount = amountDisplay.length > 0;
+      const hasQtyOrUnit = qtyDisplay.length > 0 || unitPriceDisplay.length > 0;
+      const calculatedAmount = Number.isFinite(qtyNumber) && Number.isFinite(unitPriceNumber)
+        ? qtyNumber * unitPriceNumber
+        : 0;
+      const normalizedAmountNumber = hasManualAmount
+        ? toNumber(amountInput)
+        : hasQtyOrUnit
+          ? calculatedAmount
+          : 0;
+
+      const docQty = qtyDisplay || (Number.isFinite(qtyNumber) && qtyNumber !== 0 ? String(qtyNumber) : '');
+      const docUnitPrice = unitPriceDisplay
+        || (Number.isFinite(unitPriceNumber) && unitPriceNumber !== 0 ? fmtMoney(unitPriceNumber, currency) : '');
+      const docAmount = amountDisplay
+        || (hasQtyOrUnit ? fmtMoney(calculatedAmount, currency) : '');
+
+      const previewQty = docQty || '—';
+      const previewUnitPrice = docUnitPrice || '—';
+      const previewAmount = docAmount || '—';
+
+      const hasContent = [description, docQty, docUnitPrice, docAmount]
+        .map(value => (typeof value === 'string' ? value.trim() : value))
+        .some(Boolean);
+
+      return {
+        hasContent,
+        amountNumber: Number.isFinite(normalizedAmountNumber) ? normalizedAmountNumber : 0,
+        doc: {
+          description: description || '',
+          qty: docQty,
+          unitPrice: docUnitPrice,
+          amount: docAmount
+        },
+        preview: {
+          description: description.trim() || '（未填写）',
+          qty: previewQty,
+          unitPrice: previewUnitPrice,
+          amount: previewAmount
+        }
+      };
+    });
+
+    const docItems = normalizedItems.filter(item => item.hasContent).map(item => item.doc);
+    const previewItems = normalizedItems.filter(item => item.hasContent).map(item => item.preview);
+    const subtotalNumber = normalizedItems.reduce(
+      (sum, item) => sum + (Number.isFinite(item.amountNumber) ? item.amountNumber : 0),
+      0
+    );
+    const subtotalDisplay = fmtMoney(subtotalNumber, currency);
+
+    const manualTotalInput = typeof form.total === 'string' ? form.total.trim() : '';
+    const fallbackTotalDisplay = fmtMoney(subtotalNumber, currency);
+    const totalDisplay = manualTotalInput || fallbackTotalDisplay;
 
     const issueMs = parseIsoDate(form.dateOfIssue);
     const dueMs = parseIsoDate(form.paymentDue);
@@ -242,46 +331,47 @@ export default function InvoicePage() {
       }
     }
 
-    const projectNameBlock = buildBlock(form.projectNameTitle, DEFAULT_BLOCK_LABELS.projectNameTitle, form.projectName);
-    const serviceBlock = buildBlock(form.serviceDetailTitle, DEFAULT_BLOCK_LABELS.serviceDetailTitle, form.serviceDetail);
-    const feeIncludeBlock = buildBlock(form.feeIncludeTitle, DEFAULT_BLOCK_LABELS.feeIncludeTitle, form.feeInclude);
-    const feeExcludeBlock = buildBlock(form.feeExcludeTitle, DEFAULT_BLOCK_LABELS.feeExcludeTitle, form.feeExclude);
-    const serviceDetailsDoc = `${projectNameBlock.docValue}\n\n${serviceBlock.docValue}`;
+    const serviceBlock = buildBlock(
+      form.serviceDetailTitle,
+      DEFAULT_BLOCK_LABELS.serviceDetailTitle,
+      form.serviceDetail
+    );
+    const feeIncludeBlock = buildBlock(
+      form.feeIncludeTitle,
+      DEFAULT_BLOCK_LABELS.feeIncludeTitle,
+      form.feeInclude
+    );
+    const feeExcludeBlock = buildBlock(
+      form.feeExcludeTitle,
+      DEFAULT_BLOCK_LABELS.feeExcludeTitle,
+      form.feeExclude
+    );
 
     return {
-      qty,
-      unit,
-      amount,
-      unitPriceTotal,
-      amountTotal,
-      total,
       currency,
       daysToPay,
-      projectBlocks: [projectNameBlock, serviceBlock, feeIncludeBlock, feeExcludeBlock],
+      projectBlocks: [serviceBlock, feeIncludeBlock, feeExcludeBlock],
       docText: {
-        serviceDetails: serviceDetailsDoc,
+        serviceDetails: serviceBlock.docValue,
         feeInclude: feeIncludeBlock.docValue,
         feeExclude: feeExcludeBlock.docValue
       },
-      f: {
-        amount: fmtMoney(amount, currency),
-        unitPriceTotal: fmtMoney(unitPriceTotal, currency),
-        amountTotal: fmtMoney(amountTotal, currency),
-        total: fmtMoney(total, currency)
+      price: {
+        docItems,
+        previewItems,
+        hasItems: docItems.length > 0,
+        subtotalDisplay,
+        totalDisplay,
+        fallbackTotalDisplay,
+        manualTotalInput
       }
     };
   }, [
-    form.qty,
-    form.unitPrice,
-    form.amount,
-    form.unitPriceTotal,
-    form.amountTotal,
+    form.priceItems,
     form.total,
     form.currency,
     form.dateOfIssue,
     form.paymentDue,
-    form.projectNameTitle,
-    form.projectName,
     form.serviceDetailTitle,
     form.serviceDetail,
     form.feeIncludeTitle,
@@ -290,26 +380,7 @@ export default function InvoicePage() {
     form.feeExclude
   ]);
 
-  const previewCurrency = computed.currency || 'SGD';
-  const previewQtyValue = form.qty?.trim() || (Number.isFinite(computed.qty) && computed.qty !== 0 ? String(computed.qty) : '');
-  const previewUnitPriceValue = form.unitPrice?.trim()
-    || (Number.isFinite(computed.unit) && computed.unit !== 0
-      ? new Intl.NumberFormat('en-SG', { style: 'currency', currency: previewCurrency }).format(computed.unit)
-      : '');
-  const previewAmountValue = form.amount?.trim() || computed.f.amount;
-  const previewUnitSubtotalValue = form.unitPriceTotal?.trim() || computed.f.unitPriceTotal;
-  const previewAmountSubtotalValue = form.amountTotal?.trim() || computed.f.amountTotal;
-  const previewTotalValue = form.total?.trim() || computed.f.total;
-  const previewItems = (form.description?.trim() || previewQtyValue || previewUnitPriceValue || previewAmountValue)
-    ? [
-        {
-          description: form.description?.trim() || '（未填写）',
-          qty: previewQtyValue || '—',
-          unitPrice: previewUnitPriceValue || '—',
-          amount: previewAmountValue || '—'
-        }
-      ]
-    : [];
+  const previewItems = computed.price.previewItems;
   const dueDisplay = form.paymentDue?.trim()
     ? computed.daysToPay
       ? `${form.paymentDue.trim()}（付款期限 ${computed.daysToPay} 天）`
@@ -340,36 +411,10 @@ export default function InvoicePage() {
     const currency = computed.currency;
     const normalizedCurrency = currency || 'SGD';
 
-    const qtyDisplay = form.qty?.trim()
-      ? form.qty
-      : Number.isFinite(computed.qty) && computed.qty !== 0
-        ? String(computed.qty)
-        : '';
-    const unitPriceDisplay = form.unitPrice?.trim()
-      ? form.unitPrice
-      : Number.isFinite(computed.unit) && computed.unit !== 0
-        ? new Intl.NumberFormat('en-SG', { style: 'currency', currency: normalizedCurrency }).format(computed.unit)
-        : '';
-    const amountDisplay = form.amount?.trim() ? form.amount : computed.f.amount;
-
-    const hasItemValues = [form.description, qtyDisplay, unitPriceDisplay, amountDisplay]
-      .map(value => (typeof value === 'string' ? value.trim() : value))
-      .some(Boolean);
-
-    const items = hasItemValues
-      ? [
-          {
-            description: form.description || '',
-            qty: qtyDisplay,
-            unitPrice: unitPriceDisplay,
-            amount: amountDisplay
-          }
-        ]
-      : [];
-
-    const unitPriceSubtotal = form.unitPriceTotal?.trim() ? form.unitPriceTotal : computed.f.unitPriceTotal;
-    const amountSubtotal = form.amountTotal?.trim() ? form.amountTotal : computed.f.amountTotal;
-    const totalAmount = form.total?.trim() ? form.total : computed.f.total;
+    const items = computed.price.docItems;
+    const unitPriceSubtotal = computed.price.subtotalDisplay;
+    const amountSubtotal = computed.price.subtotalDisplay;
+    const totalAmount = computed.price.totalDisplay;
 
     const bankDoc = selectedBankCurrencyEntry
       ? {
@@ -534,26 +579,26 @@ export default function InvoicePage() {
                   onChange={event => onChange('paymentDue', event.target.value)}
                 />
               </label>
-              <div className={styles.field}>
+              <label className={styles.field}>
                 <span className={styles.fieldLabel}>币种</span>
-                <div className={styles.radioGroup} role="radiogroup" aria-label="选择币种">
-                  {CURRENCY_OPTIONS.map(option => {
-                    const checked = form.currency === option.code;
-                    return (
-                      <label key={option.code} className={styles.radioOption} data-selected={checked ? 'true' : 'false'}>
-                        <input
-                          type="radio"
-                          name="currency"
-                          value={option.code}
-                          checked={checked}
-                          onChange={() => onChange('currency', option.code)}
-                        />
-                        <span>{option.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+                <select
+                  className={styles.selectControl}
+                  value={form.currency}
+                  onChange={event => {
+                    const nextCurrency = event.target.value;
+                    onChange('currency', nextCurrency);
+                    if (selectedBank?.currencies.some(item => item.code === nextCurrency)) {
+                      setSelectedBankCurrency(nextCurrency);
+                    }
+                  }}
+                >
+                  {CURRENCY_OPTIONS.map(option => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </section>
 
@@ -651,36 +696,15 @@ export default function InvoicePage() {
             </div>
             <div className={styles.projectContentGrid}>
               <div className={styles.projectModule}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>模块标题</span>
-                  <input
-                    className={styles.textControl}
-                    value={form.projectNameTitle}
-                    onChange={event => onChange('projectNameTitle', event.target.value)}
-                    placeholder="项目名称"
-                  />
-                </label>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>{form.projectNameTitle || DEFAULT_BLOCK_LABELS.projectNameTitle}</span>
-                  <textarea
-                    className={styles.textControl}
-                    value={form.projectName}
-                    onChange={event => onChange('projectName', event.target.value)}
-                    placeholder="请填写项目名称或编号"
-                    rows={3}
-                  />
-                </label>
-              </div>
-              <div className={styles.projectModule}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>模块标题</span>
+                <div className={styles.projectTitleInput}>
                   <input
                     className={styles.textControl}
                     value={form.serviceDetailTitle}
                     onChange={event => onChange('serviceDetailTitle', event.target.value)}
                     placeholder="行程與服務詳情"
+                    aria-label="项目内容模块标题"
                   />
-                </label>
+                </div>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>{form.serviceDetailTitle || DEFAULT_BLOCK_LABELS.serviceDetailTitle}</span>
                   <textarea
@@ -688,20 +712,20 @@ export default function InvoicePage() {
                     value={form.serviceDetail}
                     onChange={event => onChange('serviceDetail', event.target.value)}
                     placeholder="请描述行程安排、交付内容等关键信息"
-                    rows={5}
+                    rows={6}
                   />
                 </label>
               </div>
               <div className={styles.projectModule}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>模块标题</span>
+                <div className={styles.projectTitleInput}>
                   <input
                     className={styles.textControl}
                     value={form.feeIncludeTitle}
                     onChange={event => onChange('feeIncludeTitle', event.target.value)}
                     placeholder="费用包含"
+                    aria-label="项目内容模块标题"
                   />
-                </label>
+                </div>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>{form.feeIncludeTitle || DEFAULT_BLOCK_LABELS.feeIncludeTitle}</span>
                   <textarea
@@ -709,20 +733,20 @@ export default function InvoicePage() {
                     value={form.feeInclude}
                     onChange={event => onChange('feeInclude', event.target.value)}
                     placeholder="列出包含的服务、交通、用餐等"
-                    rows={5}
+                    rows={6}
                   />
                 </label>
               </div>
               <div className={styles.projectModule}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>模块标题</span>
+                <div className={styles.projectTitleInput}>
                   <input
                     className={styles.textControl}
                     value={form.feeExcludeTitle}
                     onChange={event => onChange('feeExcludeTitle', event.target.value)}
                     placeholder="费用不含"
+                    aria-label="项目内容模块标题"
                   />
-                </label>
+                </div>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>{form.feeExcludeTitle || DEFAULT_BLOCK_LABELS.feeExcludeTitle}</span>
                   <textarea
@@ -730,7 +754,7 @@ export default function InvoicePage() {
                     value={form.feeExclude}
                     onChange={event => onChange('feeExclude', event.target.value)}
                     placeholder="列出需客户自理的费用"
-                    rows={4}
+                    rows={5}
                   />
                 </label>
               </div>
@@ -742,71 +766,78 @@ export default function InvoicePage() {
               <h2 className={styles.sectionTitle}>项目价格</h2>
               <p className={styles.sectionHint}>填写单项数量、单价与金额，系统会生成汇总。</p>
             </div>
-            <div className={styles.fieldGrid}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>费用项目</span>
-                <input
-                  className={styles.textControl}
-                  value={form.description}
-                  onChange={event => onChange('description', event.target.value)}
-                  placeholder="如：顾问服务费用"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>数量</span>
-                <input
-                  className={styles.textControl}
-                  value={form.qty}
-                  onChange={event => onChange('qty', event.target.value)}
-                  placeholder="如：10"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>单价</span>
-                <input
-                  className={styles.textControl}
-                  value={form.unitPrice}
-                  onChange={event => onChange('unitPrice', event.target.value)}
-                  placeholder="支持输入金额或格式化文本"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>金额</span>
-                <input
-                  className={styles.textControl}
-                  value={form.amount}
-                  onChange={event => onChange('amount', event.target.value)}
-                  placeholder="未填写则自动计算"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>小计（按单价）</span>
-                <input
-                  className={styles.textControl}
-                  value={form.unitPriceTotal}
-                  onChange={event => onChange('unitPriceTotal', event.target.value)}
-                  placeholder="示例：SGD 12,000.00"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>小计（按金额）</span>
-                <input
-                  className={styles.textControl}
-                  value={form.amountTotal}
-                  onChange={event => onChange('amountTotal', event.target.value)}
-                  placeholder="示例：SGD 12,000.00"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>总计金额</span>
-                <input
-                  className={styles.textControl}
-                  value={form.total}
-                  onChange={event => onChange('total', event.target.value)}
-                  placeholder="示例：SGD 12,000.00"
-                />
-              </label>
+            <div className={styles.priceItemsList}>
+              {form.priceItems.map((item, index) => (
+                <div key={index} className={styles.priceItemCard}>
+                  <div className={styles.priceItemHeader}>
+                    <span className={styles.priceItemTitle}>费用项目 {index + 1}</span>
+                    <div className={styles.priceItemActions}>
+                      {form.priceItems.length > 1 ? (
+                        <button
+                          type="button"
+                          className={styles.ghostButton}
+                          onClick={() => removePriceItem(index)}
+                          aria-label={`删除费用项目 ${index + 1}`}
+                        >
+                          删除
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className={styles.priceItemGrid}>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>名称</span>
+                      <input
+                        className={styles.textControl}
+                        value={item.description}
+                        onChange={event => updatePriceItem(index, 'description', event.target.value)}
+                        placeholder="如：顾问服务费用"
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>数量</span>
+                      <input
+                        className={styles.textControl}
+                        value={item.qty}
+                        onChange={event => updatePriceItem(index, 'qty', event.target.value)}
+                        placeholder="如：10"
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>单价</span>
+                      <input
+                        className={styles.textControl}
+                        value={item.unitPrice}
+                        onChange={event => updatePriceItem(index, 'unitPrice', event.target.value)}
+                        placeholder="支持输入金额或格式化文本"
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>合计</span>
+                      <input
+                        className={styles.textControl}
+                        value={item.amount}
+                        onChange={event => updatePriceItem(index, 'amount', event.target.value)}
+                        placeholder="未填写则自动计算"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+              <button type="button" className={styles.secondaryButton} onClick={addPriceItem}>
+                + 添加费用项目
+              </button>
             </div>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>总计金额</span>
+              <input
+                className={styles.textControl}
+                value={form.total}
+                onChange={event => onChange('total', event.target.value)}
+                placeholder={`未填写则默认 ${computed.price.fallbackTotalDisplay}`}
+              />
+              <span className={styles.fieldHint}>系统会根据以上项目自动合计：{computed.price.fallbackTotalDisplay}</span>
+            </label>
           </section>
 
           <div className={styles.buttonRow}>
@@ -901,35 +932,27 @@ export default function InvoicePage() {
 
             <section className={styles.previewSection}>
               <h3 className={styles.previewSectionTitle}>项目价格</h3>
-              {previewItems.length ? (
-                previewItems.map((item, index) => (
-                  <div key={index} className={styles.previewItem}>
-                    <span className={styles.previewLabel}>费用项目 {index + 1}</span>
-                    <span className={styles.previewValue}>
-                      {item.description}
-                      {'\n'}数量：{item.qty || '—'}
-                      {'\n'}单价：{item.unitPrice || '—'}
-                      {'\n'}金额：{item.amount || '—'}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className={styles.previewItem}>
-                  <span className={styles.previewLabel}>费用项目</span>
-                  <span className={styles.previewValue}>暂未填写。</span>
+              {computed.price.hasItems ? (
+                <div className={styles.previewPriceList}>
+                  {previewItems.map((item, index) => (
+                    <div key={index} className={styles.previewPriceItem}>
+                      <div className={styles.previewPriceHeader}>
+                        <span className={styles.previewPriceName}>{item.description}</span>
+                        <span className={styles.previewPriceAmount}>{item.amount}</span>
+                      </div>
+                      <div className={styles.previewPriceMeta}>
+                        <span>数量：{item.qty}</span>
+                        <span>单价：{item.unitPrice}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <p className={styles.emptyPreviewHint}>暂未添加费用项目。</p>
               )}
               <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>小计（单价）</span>
-                <span className={styles.previewValue}>{previewUnitSubtotalValue || '—'}</span>
-              </div>
-              <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>小计（金额）</span>
-                <span className={styles.previewValue}>{previewAmountSubtotalValue || '—'}</span>
-              </div>
-              <div className={styles.previewItem}>
                 <span className={styles.previewLabel}>总计</span>
-                <span className={styles.previewValue}>{previewTotalValue || '—'}</span>
+                <span className={styles.previewValue}>{computed.price.totalDisplay || '—'}</span>
               </div>
             </section>
           </div>

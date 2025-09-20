@@ -1,11 +1,44 @@
 .page {
+  position: relative;
   padding: clamp(32px, 4vw, 48px) clamp(24px, 6vw, 96px) 56px;
-  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
-  min-height: 100%;
-  color: #0f172a;
+  min-height: 100vh;
+  color: #283036;
+  background:
+    radial-gradient(120% 120% at 16% 10%, rgba(194, 203, 204, 0.28), transparent 64%),
+    radial-gradient(135% 140% at 82% 16%, rgba(220, 202, 206, 0.24), transparent 68%),
+    radial-gradient(140% 150% at 50% 96%, rgba(208, 217, 210, 0.22), transparent 72%),
+    linear-gradient(175deg, #f0f3f4 0%, #e4e8ea 44%, #d9dde0 100%);
+  overflow: hidden;
+}
+
+.page::before {
+  content: '';
+  position: absolute;
+  inset: -38% -22% 8% -22%;
+  background:
+    radial-gradient(140% 120% at 20% 28%, rgba(220, 228, 228, 0.34), transparent 72%),
+    radial-gradient(150% 120% at 82% 68%, rgba(236, 214, 209, 0.28), transparent 76%);
+  filter: blur(120px);
+  opacity: 0.65;
+  pointer-events: none;
+  mix-blend-mode: lighten;
+  animation: invoiceBackdrop 52s ease-in-out infinite alternate;
+}
+
+.page::after {
+  content: '';
+  position: absolute;
+  inset: -6% -12% -10% -12%;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.68) 0%, rgba(234, 238, 241, 0.42) 46%, rgba(226, 230, 234, 0.5) 100%);
+  backdrop-filter: blur(28px);
+  opacity: 0.48;
+  mix-blend-mode: screen;
+  pointer-events: none;
 }
 
 .topBar {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -22,17 +55,19 @@
   border-radius: 999px;
   font-size: 14px;
   font-weight: 600;
-  color: #1d4ed8;
+  color: #2f3539;
   text-decoration: none;
-  background: rgba(37, 99, 235, 0.12);
-  box-shadow: 0 1px 0 rgba(37, 99, 235, 0.08);
-  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  background: linear-gradient(135deg, rgba(226, 233, 234, 0.6), rgba(234, 220, 216, 0.52));
+  border: 1px solid rgba(188, 202, 208, 0.5);
+  box-shadow: 0 12px 26px rgba(149, 160, 170, 0.22);
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 }
 
 .backLink:hover {
-  background: rgba(37, 99, 235, 0.18);
+  background: linear-gradient(135deg, rgba(226, 233, 234, 0.74), rgba(234, 220, 216, 0.64));
+  color: #1d2124;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 18px 32px rgba(149, 160, 170, 0.26);
 }
 
 .backIcon {
@@ -45,9 +80,12 @@
   font-weight: 600;
   margin: 0;
   letter-spacing: -0.01em;
+  color: #1e2529;
 }
 
 .layout {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: clamp(24px, 4vw, 36px);
   align-items: flex-start;
@@ -68,11 +106,11 @@
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 20px;
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  backdrop-filter: blur(6px);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(236, 241, 243, 0.76));
+  border-radius: 22px;
+  box-shadow: 0 26px 48px rgba(150, 162, 172, 0.26);
+  border: 1px solid rgba(188, 201, 208, 0.55);
+  backdrop-filter: blur(20px);
 }
 
 .formCard {
@@ -101,12 +139,12 @@
   font-size: clamp(18px, 2vw, 22px);
   font-weight: 600;
   margin: 0;
-  color: #1e293b;
+  color: #22292e;
 }
 
 .sectionHint {
   font-size: 14px;
-  color: #64748b;
+  color: #6c767c;
   margin: 0;
 }
 
@@ -124,34 +162,34 @@
 .fieldLabel {
   font-size: 14px;
   font-weight: 500;
-  color: #1f2937;
+  color: #40474d;
 }
 
 .fieldHint {
   font-size: 12px;
-  color: #64748b;
+  color: #7c868d;
 }
 
 .textControl {
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  background: rgba(248, 250, 252, 0.8);
+  border: 1px solid rgba(188, 200, 208, 0.55);
+  background: rgba(249, 251, 252, 0.82);
   padding: 12px 14px;
   font-size: 15px;
   line-height: 1.5;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-  color: inherit;
+  color: #22292e;
 }
 
 .textControl:focus {
   outline: none;
-  border-color: #6366f1;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  border-color: #b3c3c6;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(192, 206, 210, 0.3);
 }
 
 .textControl::placeholder {
-  color: #94a3b8;
+  color: #96a0a5;
 }
 
 .buttonRow {
@@ -166,31 +204,31 @@
   padding: 12px 24px;
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
-  box-shadow: 0 12px 24px rgba(79, 70, 229, 0.3);
+  color: #1c2225;
+  background: linear-gradient(135deg, #d7ded9 0%, #e7d5d1 100%);
+  box-shadow: 0 20px 34px rgba(149, 160, 168, 0.28);
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .primaryButton:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
   box-shadow: none;
 }
 
 .primaryButton:not(:disabled):hover {
   transform: translateY(-1px);
-  box-shadow: 0 18px 32px rgba(67, 56, 202, 0.35);
+  box-shadow: 0 24px 40px rgba(149, 160, 168, 0.32);
 }
 
 .secondaryButton {
   align-self: flex-start;
   padding: 10px 18px;
   border-radius: 999px;
-  border: 1px dashed rgba(99, 102, 241, 0.5);
-  background: rgba(99, 102, 241, 0.08);
-  color: #4338ca;
+  border: 1px dashed rgba(182, 194, 201, 0.7);
+  background: rgba(240, 244, 246, 0.8);
+  color: #2a3135;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -198,8 +236,8 @@
 }
 
 .secondaryButton:hover {
-  background: rgba(99, 102, 241, 0.16);
-  border-color: rgba(67, 56, 202, 0.7);
+  background: rgba(240, 244, 246, 0.95);
+  border-color: rgba(198, 208, 214, 0.9);
   transform: translateY(-1px);
 }
 
@@ -207,7 +245,7 @@
   appearance: none;
   border: none;
   background: transparent;
-  color: #ef4444;
+  color: #b46565;
   font-size: 13px;
   font-weight: 600;
   padding: 6px 10px;
@@ -217,8 +255,8 @@
 }
 
 .ghostButton:hover {
-  background: rgba(239, 68, 68, 0.12);
-  color: #b91c1c;
+  background: rgba(196, 110, 110, 0.16);
+  color: #d78282;
 }
 
 .previewGroup {
@@ -236,7 +274,7 @@
 .previewSectionTitle {
   font-size: 15px;
   font-weight: 600;
-  color: #475569;
+  color: #5f6a70;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin: 0;
@@ -249,21 +287,21 @@
   align-items: flex-start;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(248, 250, 252, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(247, 249, 250, 0.88);
+  border: 1px solid rgba(186, 199, 207, 0.45);
 }
 
 .previewLabel {
   font-size: 13px;
   font-weight: 500;
-  color: #64748b;
+  color: #5a646b;
   width: 120px;
   flex-shrink: 0;
 }
 
 .previewValue {
   font-size: 14px;
-  color: #1f2937;
+  color: #2a3135;
   white-space: pre-wrap;
   word-break: break-word;
   flex: 1;
@@ -277,46 +315,47 @@
 
 .selectControl {
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  background: rgba(248, 250, 252, 0.8);
+  border: 1px solid rgba(188, 200, 208, 0.55);
+  background: rgba(249, 251, 252, 0.82);
   padding: 10px 14px;
   font-size: 14px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  color: #22292e;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .selectControl:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
-  background: #fff;
+  border-color: #b3c3c6;
+  box-shadow: 0 0 0 3px rgba(192, 206, 210, 0.3);
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .errorBanner {
   margin-top: 16px;
   padding: 12px 16px;
   border-radius: 12px;
-  background: rgba(248, 113, 113, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #b91c1c;
+  background: rgba(227, 174, 174, 0.28);
+  border: 1px solid rgba(189, 104, 104, 0.4);
+  color: #934747;
 }
 
 .pdfPreview {
   margin-top: 32px;
   position: relative;
   border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(226, 232, 240, 0.55);
+  border: 1px solid rgba(188, 201, 208, 0.45);
+  background: rgba(247, 249, 250, 0.9);
   padding: 16px;
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(210, 220, 226, 0.35);
 }
 
 .pdfPage {
   display: block;
-   width: 100%;
+  width: 100%;
   height: auto;
   margin-bottom: 16px;
   border-radius: 12px;
-  box-shadow: 0 20px 35px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 20px 30px rgba(146, 158, 168, 0.28);
 }
 
 .stamp {
@@ -334,7 +373,7 @@
 
 .emptyPreviewHint {
   font-size: 14px;
-  color: #94a3b8;
+  color: #7c868d;
   margin: 0;
 }
 
@@ -350,29 +389,30 @@
   gap: 6px;
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  background: rgba(248, 250, 252, 0.85);
+  border: 1px solid rgba(188, 200, 208, 0.55);
+  background: rgba(246, 248, 249, 0.82);
+  color: #2a3135;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
 
 .radioOption[data-selected='true'] {
-  border-color: #6366f1;
-  background: rgba(99, 102, 241, 0.12);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+  border-color: #b6c6c9;
+  background: rgba(216, 226, 226, 0.58);
+  box-shadow: 0 0 0 2px rgba(198, 210, 216, 0.24);
 }
 
 .radioOption input {
   margin: 0;
-  accent-color: #6366f1;
+  accent-color: #b1bebf;
 }
 
 .detailList {
   margin: 18px 0 0;
   padding: 18px;
   border-radius: 16px;
-  background: rgba(226, 232, 240, 0.45);
-  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(247, 249, 250, 0.88);
+  border: 1px solid rgba(186, 199, 207, 0.45);
   display: grid;
   gap: 12px;
 }
@@ -386,13 +426,13 @@
 .detailTerm {
   font-size: 13px;
   font-weight: 600;
-  color: #475569;
+  color: #5a646b;
   min-width: 96px;
 }
 
 .detailValue {
   font-size: 14px;
-  color: #1f2937;
+  color: #2a3135;
   flex: 1;
   white-space: pre-wrap;
   word-break: break-word;
@@ -409,8 +449,10 @@
   gap: 16px;
   padding: 18px;
   border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  background: rgba(248, 250, 252, 0.7);
+  border: 1px solid rgba(186, 199, 207, 0.45);
+  background: rgba(247, 249, 250, 0.88);
+  box-shadow: 0 16px 32px rgba(146, 158, 168, 0.24);
+  color: #2a3135;
 }
 
 .projectTitleInput {
@@ -432,12 +474,13 @@
 .priceItemCard {
   padding: 20px;
   border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(248, 250, 252, 0.85);
+  border: 1px solid rgba(186, 199, 207, 0.45);
+  background: rgba(247, 249, 250, 0.9);
   display: flex;
   flex-direction: column;
   gap: 18px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 20px 40px rgba(146, 158, 168, 0.26);
+  color: #2a3135;
 }
 
 .priceItemHeader {
@@ -450,7 +493,7 @@
 .priceItemTitle {
   font-size: 15px;
   font-weight: 600;
-  color: #1f2937;
+  color: #22292e;
 }
 
 .priceItemActions {
@@ -483,12 +526,13 @@
 
 .previewPriceItem {
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  background: rgba(248, 250, 252, 0.85);
+  border: 1px solid rgba(186, 199, 207, 0.45);
+  background: rgba(247, 249, 250, 0.88);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  color: #2a3135;
 }
 
 .previewPriceHeader {
@@ -501,13 +545,13 @@
 .previewPriceName {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: #22292e;
 }
 
 .previewPriceAmount {
   font-size: 14px;
   font-weight: 600;
-  color: #4338ca;
+  color: #6c767c;
 }
 
 .previewPriceMeta {
@@ -515,5 +559,25 @@
   flex-wrap: wrap;
   gap: 12px;
   font-size: 13px;
-  color: #64748b;
+  color: #7c868d;
+}
+
+
+@keyframes invoiceBackdrop {
+  0%,
+  100% {
+    transform: translate3d(-4%, -2%, 0) scale(1);
+  }
+  45% {
+    transform: translate3d(4%, 6%, 0) scale(1.05);
+  }
+  70% {
+    transform: translate3d(-2%, 3%, 0) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page::before {
+    animation: none !important;
+  }
 }

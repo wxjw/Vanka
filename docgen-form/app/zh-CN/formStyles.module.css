@@ -262,7 +262,7 @@
 
 .pdfPage {
   display: block;
-  width: 100%;
+   width: 100%;
   height: auto;
   margin-bottom: 16px;
   border-radius: 12px;
@@ -286,4 +286,87 @@
   font-size: 14px;
   color: #94a3b8;
   margin: 0;
+}
+
+.radioGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.radioOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: rgba(248, 250, 252, 0.85);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.radioOption[data-selected='true'] {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+
+.radioOption input {
+  margin: 0;
+  accent-color: #6366f1;
+}
+
+.detailList {
+  margin: 18px 0 0;
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(226, 232, 240, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  display: grid;
+  gap: 12px;
+}
+
+.detailItem {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.detailTerm {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  min-width: 96px;
+}
+
+.detailValue {
+  font-size: 14px;
+  color: #1f2937;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.projectContentGrid {
+  display: grid;
+  gap: 22px;
+}
+
+.projectModule {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(248, 250, 252, 0.7);
+}
+
+@media (min-width: 960px) {
+  .projectModule {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .projectModule .field:nth-child(1) {
+    max-width: 320px;
+  }
 }

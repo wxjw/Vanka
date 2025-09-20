@@ -97,6 +97,10 @@ export default function Home() {
   return (
     <main className={styles.page}>
       <div className={styles.ambientBackdrop} aria-hidden>
+        <span className={`${styles.waveLayer} ${styles.waveOne}`} />
+        <span className={`${styles.waveLayer} ${styles.waveTwo}`} />
+        <span className={`${styles.waveLayer} ${styles.waveThree}`} />
+        <span className={styles.frostVeil} />
         <span className={`${styles.liquidGlass} ${styles.liquidPrimary}`} />
         <span className={`${styles.liquidGlass} ${styles.liquidSecondary}`} />
         <span className={`${styles.lightBeam} ${styles.beamLeft}`} />

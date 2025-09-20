@@ -97,9 +97,15 @@ export default function Home() {
   return (
     <main className={styles.page}>
       <div className={styles.ambientBackdrop} aria-hidden>
+        <span className={`${styles.liquidGlass} ${styles.liquidPrimary}`} />
+        <span className={`${styles.liquidGlass} ${styles.liquidSecondary}`} />
+        <span className={`${styles.lightBeam} ${styles.beamLeft}`} />
+        <span className={`${styles.lightBeam} ${styles.beamRight}`} />
         <span className={`${styles.ambientOrb} ${styles.orbPrimary}`} />
         <span className={`${styles.ambientOrb} ${styles.orbSecondary}`} />
         <span className={`${styles.ambientOrb} ${styles.orbTertiary}`} />
+        <span className={`${styles.sparkleCluster} ${styles.sparkleOne}`} />
+        <span className={`${styles.sparkleCluster} ${styles.sparkleTwo}`} />
         <span className={`${styles.glassStreak} ${styles.streakOne}`} />
         <span className={`${styles.glassStreak} ${styles.streakTwo}`} />
       </div>

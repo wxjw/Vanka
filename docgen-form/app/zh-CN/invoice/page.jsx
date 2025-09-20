@@ -1,73 +1,231 @@
 'use client';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import JSZip from 'jszip';
+import { useEffect, useMemo, useState } from 'react';
 import styles from '../formStyles.module.css';
 
+const CURRENCY_OPTIONS = [
+  { code: 'SGD', label: 'SGD - 新加坡元' },
+  { code: 'USD', label: 'USD - 美元' },
+  { code: 'CNY', label: 'CNY - 人民币' },
+  { code: 'HKD', label: 'HKD - 港币' },
+  { code: 'EUR', label: 'EUR - 欧元' },
+  { code: 'GBP', label: 'GBP - 英镑' },
+  { code: 'JPY', label: 'JPY - 日元' },
+  { code: 'AUD', label: 'AUD - 澳元' },
+  { code: 'MYR', label: 'MYR - 马来西亚林吉特' }
+];
+
+const DEFAULT_BLOCK_LABELS = {
+  projectNameTitle: '项目名称',
+  serviceDetailTitle: '行程與服務詳情',
+  feeIncludeTitle: '费用包含',
+  feeExcludeTitle: '费用不含'
+};
+
+const BANK_DATA_SOURCE = '/data/bank-accounts.xlsx';
+
+const getTodayIsoDate = () => {
+  const now = new Date();
+  const utcMs = now.getTime() - now.getTimezoneOffset() * 60 * 1000;
+  return new Date(utcMs).toISOString().slice(0, 10);
+};
+
+const columnLettersToIndex = letters => {
+  if (!letters) return -1;
+  let total = 0;
+  for (let i = 0; i < letters.length; i += 1) {
+    total = total * 26 + (letters.charCodeAt(i) - 64);
+  }
+  return total - 1;
+};
+
+const readCellText = cell => {
+  if (!cell) return '';
+  const inlineString = cell.getElementsByTagName('is')[0];
+  if (inlineString) {
+    const textNode = inlineString.getElementsByTagName('t')[0];
+    return textNode?.textContent ?? '';
+  }
+  const valueNode = cell.getElementsByTagName('v')[0];
+  return valueNode?.textContent ?? '';
+};
+
+const buildBlock = (title, fallbackTitle, content) => {
+  const normalizedTitle = (title ?? '').trim() || fallbackTitle;
+  const normalizedContent = (content ?? '').trim();
+  const displayValue = normalizedContent || '—';
+  const docValue = `${normalizedTitle}：\n${normalizedContent || '—'}`;
+  return { title: normalizedTitle, value: normalizedContent, displayValue, docValue };
+};
+
 export default function InvoicePage() {
-  const [form, setForm] = useState({
+  const todayIso = useMemo(() => getTodayIsoDate(), []);
+  const [form, setForm] = useState(() => ({
     clientName: '',
     contactInfo: '',
     invoiceNo: '',
-    dateOfIssue: '',
+    dateOfIssue: todayIso,
     paymentDue: '',
     currency: 'SGD',
-    projectLead_name: '',
-    projectLead_phone: '',
-    projectLead_email: '',
     description: '',
     qty: '',
     unitPrice: '',
     amount: '',
     unitPriceTotal: '',
     amountTotal: '',
-    serviceDetailDate: '',
+    total: '',
+    projectNameTitle: DEFAULT_BLOCK_LABELS.projectNameTitle,
+    projectName: '',
+    serviceDetailTitle: DEFAULT_BLOCK_LABELS.serviceDetailTitle,
+    serviceDetail: '',
+    feeIncludeTitle: DEFAULT_BLOCK_LABELS.feeIncludeTitle,
     feeInclude: '',
-    feeExclude: '',
-    total: ''
-  });
+    feeExcludeTitle: DEFAULT_BLOCK_LABELS.feeExcludeTitle,
+    feeExclude: ''
+  }));
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
+  const [bankOptions, setBankOptions] = useState([]);
+  const [bankError, setBankError] = useState('');
+  const [selectedBankId, setSelectedBankId] = useState('');
+  const [selectedBankCurrency, setSelectedBankCurrency] = useState('');
 
   const onChange = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
-  // —— 金额预览的自动计算（不回写到表单，只用于右侧预览 & 生成时兜底）——
-  const toNumber = (v) => {
-    if (v == null) return 0;
-    const n = parseFloat(String(v).replace(/,/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const fmtMoney = (n, ccy) => {
-    try {
-      return new Intl.NumberFormat('en-SG', { style: 'currency', currency: ccy || 'SGD' }).format(n || 0);
-    } catch {
-      return `${ccy || 'SGD'} ${Number(n || 0).toFixed(2)}`;
+  useEffect(() => {
+    let canceled = false;
+    async function loadBankData() {
+      try {
+        const response = await fetch(BANK_DATA_SOURCE, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error('无法读取银行配置文件。');
+        }
+        const buffer = await response.arrayBuffer();
+        const zip = await JSZip.loadAsync(buffer);
+        const sheetFile = zip.file('xl/worksheets/sheet1.xml');
+        if (!sheetFile) {
+          throw new Error('未在 Excel 中找到 sheet1 工作表。');
+        }
+        const sheetXml = await sheetFile.async('text');
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(sheetXml, 'application/xml');
+        const rowNodes = Array.from(xmlDoc.getElementsByTagName('row'));
+        if (rowNodes.length === 0) {
+          throw new Error('银行配置表为空。');
+        }
+        const headerCells = Array.from(rowNodes[0].getElementsByTagName('c'));
+        const headers = headerCells.map(readCellText).map(text => text.trim());
+        const bankMap = new Map();
+        for (const row of rowNodes.slice(1)) {
+          const cells = Array.from(row.getElementsByTagName('c'));
+          if (!cells.length) continue;
+          const rowData = {};
+          for (const cell of cells) {
+            const ref = cell.getAttribute('r') || '';
+            const columnLetters = ref.replace(/\d+/g, '');
+            const columnIndex = columnLettersToIndex(columnLetters);
+            const header = headers[columnIndex];
+            if (!header) continue;
+            rowData[header] = readCellText(cell).trim();
+          }
+          const bankKey = rowData['Bank Key'] || rowData['Bank Name'];
+          const currencyCode = (rowData['Currency'] || '').toUpperCase();
+          if (!bankKey || !currencyCode) continue;
+          const normalizedKey = bankKey.trim();
+          if (!bankMap.has(normalizedKey)) {
+            bankMap.set(normalizedKey, {
+              id: normalizedKey,
+              label: rowData['Bank Name']?.trim() || normalizedKey,
+              currencies: []
+            });
+          }
+          const bankEntry = bankMap.get(normalizedKey);
+          bankEntry.currencies.push({
+            code: currencyCode,
+            bankKey: normalizedKey,
+            bankName: rowData['Bank Name']?.trim() || normalizedKey,
+            accountName: rowData['Account Name']?.trim() || '',
+            accountNumber: rowData['Account Number']?.trim() || '',
+            bankAddress: rowData['Bank Address']?.trim() || '',
+            swiftCode: rowData['Swift Code']?.trim() || '',
+            remarks: rowData['Remarks']?.trim() || ''
+          });
+        }
+        const banks = Array.from(bankMap.values())
+          .map(entry => ({
+            ...entry,
+            currencies: entry.currencies.sort((a, b) => a.code.localeCompare(b.code))
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans'));
+        if (canceled) return;
+        if (!banks.length) {
+          throw new Error('未解析到有效的银行信息。');
+        }
+        setBankOptions(banks);
+        const firstBank = banks[0];
+        setSelectedBankId(firstBank.id);
+        const firstCurrency = firstBank.currencies[0]?.code || '';
+        setSelectedBankCurrency(firstCurrency);
+        if (firstCurrency) {
+          onChange('currency', firstCurrency);
+        }
+        setBankError('');
+      } catch (err) {
+        console.error('加载银行信息失败', err);
+        if (canceled) return;
+        setBankOptions([]);
+        setBankError(
+          err instanceof Error
+            ? `${err.message} 请在 public/data/bank-accounts.xlsx 中维护信息。`
+            : '加载银行信息失败，请检查 Excel 配置。'
+        );
+      }
     }
-  };
+    loadBankData();
+    return () => {
+      canceled = true;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const parseIsoDate = (input) => {
-    if (typeof input !== 'string') return null;
-    const trimmed = input.trim();
-    if (!trimmed) return null;
-    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return null;
-    const [, yearStr, monthStr, dayStr] = match;
-    const year = Number(yearStr);
-    const month = Number(monthStr) - 1;
-    const day = Number(dayStr);
-    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
-    if (month < 0 || month > 11 || day < 1 || day > 31) return null;
-    const ms = Date.UTC(year, month, day);
-    return Number.isFinite(ms) ? ms : null;
-  };
+  const selectedBank = bankOptions.find(option => option.id === selectedBankId) || null;
+  const selectedBankCurrencyEntry = selectedBank?.currencies.find(item => item.code === selectedBankCurrency) || null;
 
   const computed = useMemo(() => {
+    const toNumber = value => {
+      if (value == null) return 0;
+      const numeric = parseFloat(String(value).replace(/,/g, ''));
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+
+    const fmtMoney = (number, ccy) => {
+      try {
+        return new Intl.NumberFormat('en-SG', { style: 'currency', currency: ccy || 'SGD' }).format(number || 0);
+      } catch {
+        return `${ccy || 'SGD'} ${Number(number || 0).toFixed(2)}`;
+      }
+    };
+
+    const parseIsoDate = input => {
+      if (typeof input !== 'string') return null;
+      const trimmed = input.trim();
+      if (!trimmed) return null;
+      const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) return null;
+      const [, yearStr, monthStr, dayStr] = match;
+      const year = Number(yearStr);
+      const month = Number(monthStr) - 1;
+      const day = Number(dayStr);
+      if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+      if (month < 0 || month > 11 || day < 1 || day > 31) return null;
+      const ms = Date.UTC(year, month, day);
+      return Number.isFinite(ms) ? ms : null;
+    };
+
     const qty = toNumber(form.qty);
     const unit = toNumber(form.unitPrice);
-
     const amountCalc = qty * unit;
     const amount = toNumber(form.amount) || amountCalc;
-
     const unitPriceTotal = toNumber(form.unitPriceTotal) || amountCalc;
     const amountTotal = toNumber(form.amountTotal) || amount;
     const total = toNumber(form.total) || amountTotal;
@@ -84,6 +242,12 @@ export default function InvoicePage() {
       }
     }
 
+    const projectNameBlock = buildBlock(form.projectNameTitle, DEFAULT_BLOCK_LABELS.projectNameTitle, form.projectName);
+    const serviceBlock = buildBlock(form.serviceDetailTitle, DEFAULT_BLOCK_LABELS.serviceDetailTitle, form.serviceDetail);
+    const feeIncludeBlock = buildBlock(form.feeIncludeTitle, DEFAULT_BLOCK_LABELS.feeIncludeTitle, form.feeInclude);
+    const feeExcludeBlock = buildBlock(form.feeExcludeTitle, DEFAULT_BLOCK_LABELS.feeExcludeTitle, form.feeExclude);
+    const serviceDetailsDoc = `${projectNameBlock.docValue}\n\n${serviceBlock.docValue}`;
+
     return {
       qty,
       unit,
@@ -93,6 +257,12 @@ export default function InvoicePage() {
       total,
       currency,
       daysToPay,
+      projectBlocks: [projectNameBlock, serviceBlock, feeIncludeBlock, feeExcludeBlock],
+      docText: {
+        serviceDetails: serviceDetailsDoc,
+        feeInclude: feeIncludeBlock.docValue,
+        feeExclude: feeExcludeBlock.docValue
+      },
       f: {
         amount: fmtMoney(amount, currency),
         unitPriceTotal: fmtMoney(unitPriceTotal, currency),
@@ -109,12 +279,23 @@ export default function InvoicePage() {
     form.total,
     form.currency,
     form.dateOfIssue,
-    form.paymentDue
+    form.paymentDue,
+    form.projectNameTitle,
+    form.projectName,
+    form.serviceDetailTitle,
+    form.serviceDetail,
+    form.feeIncludeTitle,
+    form.feeInclude,
+    form.feeExcludeTitle,
+    form.feeExclude
   ]);
 
   const previewCurrency = computed.currency || 'SGD';
   const previewQtyValue = form.qty?.trim() || (Number.isFinite(computed.qty) && computed.qty !== 0 ? String(computed.qty) : '');
-  const previewUnitPriceValue = form.unitPrice?.trim() || (Number.isFinite(computed.unit) && computed.unit !== 0 ? fmtMoney(computed.unit, previewCurrency) : '');
+  const previewUnitPriceValue = form.unitPrice?.trim()
+    || (Number.isFinite(computed.unit) && computed.unit !== 0
+      ? new Intl.NumberFormat('en-SG', { style: 'currency', currency: previewCurrency }).format(computed.unit)
+      : '');
   const previewAmountValue = form.amount?.trim() || computed.f.amount;
   const previewUnitSubtotalValue = form.unitPriceTotal?.trim() || computed.f.unitPriceTotal;
   const previewAmountSubtotalValue = form.amountTotal?.trim() || computed.f.amountTotal;
@@ -137,6 +318,19 @@ export default function InvoicePage() {
       ? `付款期限 ${computed.daysToPay} 天`
       : '—';
   const currencyDisplay = (form.currency || computed.currency || 'SGD').trim().toUpperCase() || 'SGD';
+  const contactInfoDisplay = form.contactInfo?.trim() || 'N/A';
+
+  const bankPreview = selectedBankCurrencyEntry
+    ? {
+        bankName: selectedBankCurrencyEntry.bankName,
+        currency: selectedBankCurrencyEntry.code,
+        accountName: selectedBankCurrencyEntry.accountName || '—',
+        accountNumber: selectedBankCurrencyEntry.accountNumber || '—',
+        swiftCode: selectedBankCurrencyEntry.swiftCode || '—',
+        bankAddress: selectedBankCurrencyEntry.bankAddress || '—',
+        remarks: selectedBankCurrencyEntry.remarks || '—'
+      }
+    : null;
 
   async function handleGenerate(event) {
     event.preventDefault();
@@ -154,12 +348,12 @@ export default function InvoicePage() {
     const unitPriceDisplay = form.unitPrice?.trim()
       ? form.unitPrice
       : Number.isFinite(computed.unit) && computed.unit !== 0
-        ? fmtMoney(computed.unit, normalizedCurrency)
+        ? new Intl.NumberFormat('en-SG', { style: 'currency', currency: normalizedCurrency }).format(computed.unit)
         : '';
     const amountDisplay = form.amount?.trim() ? form.amount : computed.f.amount;
 
     const hasItemValues = [form.description, qtyDisplay, unitPriceDisplay, amountDisplay]
-      .map(v => (typeof v === 'string' ? v.trim() : v))
+      .map(value => (typeof value === 'string' ? value.trim() : value))
       .some(Boolean);
 
     const items = hasItemValues
@@ -177,25 +371,43 @@ export default function InvoicePage() {
     const amountSubtotal = form.amountTotal?.trim() ? form.amountTotal : computed.f.amountTotal;
     const totalAmount = form.total?.trim() ? form.total : computed.f.total;
 
-    // 生成文档所需数据：若表单为空，使用自动计算的兜底格式化数值
+    const bankDoc = selectedBankCurrencyEntry
+      ? {
+          name: [selectedBankCurrencyEntry.bankName, selectedBankCurrencyEntry.code ? `(${selectedBankCurrencyEntry.code})` : '']
+            .filter(Boolean)
+            .join(' '),
+          accountNumber: selectedBankCurrencyEntry.accountNumber
+            ? `Account No: ${selectedBankCurrencyEntry.accountNumber}`
+            : '',
+          extras: [
+            selectedBankCurrencyEntry.accountName ? `Account Name: ${selectedBankCurrencyEntry.accountName}` : '',
+            selectedBankCurrencyEntry.swiftCode ? `SWIFT: ${selectedBankCurrencyEntry.swiftCode}` : '',
+            selectedBankCurrencyEntry.bankAddress ? `Address: ${selectedBankCurrencyEntry.bankAddress}` : '',
+            selectedBankCurrencyEntry.remarks ? `Notes: ${selectedBankCurrencyEntry.remarks}` : ''
+          ]
+            .filter(Boolean)
+            .join(' / ')
+        }
+      : { name: '', accountNumber: '', extras: '' };
+
     const data = {
       billTo_name: form.clientName || '',
-      billTo_contact: form.contactInfo || '',
+      billTo_contact: contactInfoDisplay,
       invoiceNo: form.invoiceNo || '',
       dateOfIssue: form.dateOfIssue || '',
       paymentDue: form.paymentDue || '',
       currency: normalizedCurrency,
       projectLead: {
-        name: form.projectLead_name || '',
-        phone: form.projectLead_phone || '',
-        email: form.projectLead_email || ''
+        name: bankDoc.name,
+        phone: bankDoc.accountNumber,
+        email: bankDoc.extras
       },
       items,
       unitPriceSubtotal,
       amountSubtotal,
-      serviceDetails: form.serviceDetailDate || '',
-      feeInclude: form.feeInclude || '',
-      feeExclude: form.feeExclude || '',
+      serviceDetails: computed.docText.serviceDetails,
+      feeInclude: computed.docText.feeInclude,
+      feeExclude: computed.docText.feeExclude,
       totalAmount,
       X: computed.daysToPay || ''
     };
@@ -222,7 +434,6 @@ export default function InvoicePage() {
       }
 
       const blob = await res.blob();
-      // 基本校验：返回的不是 JSON（错误页）而是文件
       if (!blob || blob.size === 0) {
         const message = '返回空文件。';
         setError(`生成失败：${message}`);
@@ -237,7 +448,6 @@ export default function InvoicePage() {
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      // 给浏览器一点处理时间再 revoke，避免个别浏览器中断下载
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       console.error('生成文档时出错:', err);
@@ -266,12 +476,12 @@ export default function InvoicePage() {
         <form className={`${styles.card} ${styles.formCard}`} onSubmit={handleGenerate}>
           <section>
             <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>客户信息</h2>
-              <p className={styles.sectionHint}>填写发票抬头、联系方式与发票编号。</p>
+              <h2 className={styles.sectionTitle}>开票至（Bill To）</h2>
+              <p className={styles.sectionHint}>填写客户抬头与联系信息。</p>
             </div>
             <div className={styles.fieldGrid}>
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>客户名称</span>
+                <span className={styles.fieldLabel}>客户姓名/公司 (Client Name/Company)</span>
                 <input
                   className={styles.textControl}
                   value={form.clientName}
@@ -280,7 +490,7 @@ export default function InvoicePage() {
                 />
               </label>
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>联系方式</span>
+                <span className={styles.fieldLabel}>联络方式 (Contact Info)</span>
                 <input
                   className={styles.textControl}
                   value={form.contactInfo}
@@ -288,13 +498,22 @@ export default function InvoicePage() {
                   placeholder="邮箱或电话"
                 />
               </label>
+            </div>
+          </section>
+
+          <section>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>发票与账期信息</h2>
+              <p className={styles.sectionHint}>发票编号请填写飞书的项目编号。</p>
+            </div>
+            <div className={styles.fieldGrid}>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>发票编号</span>
                 <input
                   className={styles.textControl}
                   value={form.invoiceNo}
                   onChange={event => onChange('invoiceNo', event.target.value)}
-                  placeholder="如：VK-2024-001"
+                  placeholder="例如：FS-PRJ-2024-001"
                 />
               </label>
               <label className={styles.field}>
@@ -315,69 +534,222 @@ export default function InvoicePage() {
                   onChange={event => onChange('paymentDue', event.target.value)}
                 />
               </label>
-              <label className={styles.field}>
+              <div className={styles.field}>
                 <span className={styles.fieldLabel}>币种</span>
-                <input
-                  className={styles.textControl}
-                  value={form.currency}
-                  onChange={event => onChange('currency', event.target.value)}
-                  placeholder="如：SGD"
-                />
-              </label>
+                <div className={styles.radioGroup} role="radiogroup" aria-label="选择币种">
+                  {CURRENCY_OPTIONS.map(option => {
+                    const checked = form.currency === option.code;
+                    return (
+                      <label key={option.code} className={styles.radioOption} data-selected={checked ? 'true' : 'false'}>
+                        <input
+                          type="radio"
+                          name="currency"
+                          value={option.code}
+                          checked={checked}
+                          onChange={() => onChange('currency', option.code)}
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </section>
 
           <section>
             <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>项目负责人</h2>
-              <p className={styles.sectionHint}>用于发票底部展示的项目负责人信息。</p>
+              <h2 className={styles.sectionTitle}>收款信息</h2>
+              <p className={styles.sectionHint}>选择银行和币种后会自动带出收款账户详情。</p>
             </div>
             <div className={styles.fieldGrid}>
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>姓名</span>
-                <input
-                  className={styles.textControl}
-                  value={form.projectLead_name}
-                  onChange={event => onChange('projectLead_name', event.target.value)}
-                  placeholder="如：张三"
-                />
+                <span className={styles.fieldLabel}>收款银行</span>
+                <select
+                  className={styles.selectControl}
+                  value={selectedBankId}
+                  onChange={event => {
+                    const nextBankId = event.target.value;
+                    setSelectedBankId(nextBankId);
+                    const bank = bankOptions.find(option => option.id === nextBankId);
+                    const firstCurrency = bank?.currencies[0]?.code || '';
+                    setSelectedBankCurrency(firstCurrency);
+                    if (firstCurrency) {
+                      onChange('currency', firstCurrency);
+                    }
+                  }}
+                >
+                  {bankOptions.length ? null : <option value="">未找到银行信息</option>}
+                  {bankOptions.map(option => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>电话</span>
-                <input
-                  className={styles.textControl}
-                  value={form.projectLead_phone}
-                  onChange={event => onChange('projectLead_phone', event.target.value)}
-                  placeholder="例如：+65 1234 5678"
-                />
+                <span className={styles.fieldLabel}>收款币种</span>
+                <select
+                  className={styles.selectControl}
+                  value={selectedBankCurrency}
+                  onChange={event => {
+                    const nextCurrency = event.target.value;
+                    setSelectedBankCurrency(nextCurrency);
+                    if (nextCurrency) {
+                      onChange('currency', nextCurrency);
+                    }
+                  }}
+                  disabled={!selectedBank?.currencies.length}
+                >
+                  {selectedBank?.currencies.length
+                    ? selectedBank.currencies.map(item => (
+                        <option key={item.code} value={item.code}>
+                          {item.code}
+                        </option>
+                      ))
+                    : <option value="">无可选币种</option>}
+                </select>
               </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>邮箱</span>
-                <input
-                  type="email"
-                  className={styles.textControl}
-                  value={form.projectLead_email}
-                  onChange={event => onChange('projectLead_email', event.target.value)}
-                  placeholder="name@example.com"
-                />
-              </label>
+            </div>
+            {bankError ? <div className={styles.errorBanner}>{bankError}</div> : null}
+            {bankPreview ? (
+              <dl className={styles.detailList}>
+                <div className={styles.detailItem}>
+                  <dt className={styles.detailTerm}>银行名称</dt>
+                  <dd className={styles.detailValue}>{`${bankPreview.bankName}（${bankPreview.currency}）`}</dd>
+                </div>
+                <div className={styles.detailItem}>
+                  <dt className={styles.detailTerm}>账户名称</dt>
+                  <dd className={styles.detailValue}>{bankPreview.accountName}</dd>
+                </div>
+                <div className={styles.detailItem}>
+                  <dt className={styles.detailTerm}>账户号码</dt>
+                  <dd className={styles.detailValue}>{bankPreview.accountNumber}</dd>
+                </div>
+                <div className={styles.detailItem}>
+                  <dt className={styles.detailTerm}>SWIFT/BIC</dt>
+                  <dd className={styles.detailValue}>{bankPreview.swiftCode}</dd>
+                </div>
+                <div className={styles.detailItem}>
+                  <dt className={styles.detailTerm}>银行地址</dt>
+                  <dd className={styles.detailValue}>{bankPreview.bankAddress}</dd>
+                </div>
+                <div className={styles.detailItem}>
+                  <dt className={styles.detailTerm}>备注</dt>
+                  <dd className={styles.detailValue}>{bankPreview.remarks}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className={styles.sectionHint}>请选择银行与币种，或更新 public/data/bank-accounts.xlsx。</p>
+            )}
+          </section>
+
+          <section>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>项目内容</h2>
+              <p className={styles.sectionHint}>可修改各模块标题，内容支持多行填写。</p>
+            </div>
+            <div className={styles.projectContentGrid}>
+              <div className={styles.projectModule}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>模块标题</span>
+                  <input
+                    className={styles.textControl}
+                    value={form.projectNameTitle}
+                    onChange={event => onChange('projectNameTitle', event.target.value)}
+                    placeholder="项目名称"
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>{form.projectNameTitle || DEFAULT_BLOCK_LABELS.projectNameTitle}</span>
+                  <textarea
+                    className={styles.textControl}
+                    value={form.projectName}
+                    onChange={event => onChange('projectName', event.target.value)}
+                    placeholder="请填写项目名称或编号"
+                    rows={3}
+                  />
+                </label>
+              </div>
+              <div className={styles.projectModule}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>模块标题</span>
+                  <input
+                    className={styles.textControl}
+                    value={form.serviceDetailTitle}
+                    onChange={event => onChange('serviceDetailTitle', event.target.value)}
+                    placeholder="行程與服務詳情"
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>{form.serviceDetailTitle || DEFAULT_BLOCK_LABELS.serviceDetailTitle}</span>
+                  <textarea
+                    className={styles.textControl}
+                    value={form.serviceDetail}
+                    onChange={event => onChange('serviceDetail', event.target.value)}
+                    placeholder="请描述行程安排、交付内容等关键信息"
+                    rows={5}
+                  />
+                </label>
+              </div>
+              <div className={styles.projectModule}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>模块标题</span>
+                  <input
+                    className={styles.textControl}
+                    value={form.feeIncludeTitle}
+                    onChange={event => onChange('feeIncludeTitle', event.target.value)}
+                    placeholder="费用包含"
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>{form.feeIncludeTitle || DEFAULT_BLOCK_LABELS.feeIncludeTitle}</span>
+                  <textarea
+                    className={styles.textControl}
+                    value={form.feeInclude}
+                    onChange={event => onChange('feeInclude', event.target.value)}
+                    placeholder="列出包含的服务、交通、用餐等"
+                    rows={5}
+                  />
+                </label>
+              </div>
+              <div className={styles.projectModule}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>模块标题</span>
+                  <input
+                    className={styles.textControl}
+                    value={form.feeExcludeTitle}
+                    onChange={event => onChange('feeExcludeTitle', event.target.value)}
+                    placeholder="费用不含"
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>{form.feeExcludeTitle || DEFAULT_BLOCK_LABELS.feeExcludeTitle}</span>
+                  <textarea
+                    className={styles.textControl}
+                    value={form.feeExclude}
+                    onChange={event => onChange('feeExclude', event.target.value)}
+                    placeholder="列出需客户自理的费用"
+                    rows={4}
+                  />
+                </label>
+              </div>
             </div>
           </section>
 
           <section>
             <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>服务条目</h2>
-              <p className={styles.sectionHint}>至少填写一行以生成发票条目，未填写时会自动忽略。</p>
+              <h2 className={styles.sectionTitle}>项目价格</h2>
+              <p className={styles.sectionHint}>填写单项数量、单价与金额，系统会生成汇总。</p>
             </div>
             <div className={styles.fieldGrid}>
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>服务描述</span>
-                <textarea
+                <span className={styles.fieldLabel}>费用项目</span>
+                <input
                   className={styles.textControl}
                   value={form.description}
                   onChange={event => onChange('description', event.target.value)}
-                  placeholder="例如：品牌营销顾问服务"
-                  rows={3}
+                  placeholder="如：顾问服务费用"
                 />
               </label>
               <label className={styles.field}>
@@ -395,7 +767,7 @@ export default function InvoicePage() {
                   className={styles.textControl}
                   value={form.unitPrice}
                   onChange={event => onChange('unitPrice', event.target.value)}
-                  placeholder="支持直接填写金额或格式化文本"
+                  placeholder="支持输入金额或格式化文本"
                 />
               </label>
               <label className={styles.field}>
@@ -407,15 +779,6 @@ export default function InvoicePage() {
                   placeholder="未填写则自动计算"
                 />
               </label>
-            </div>
-          </section>
-
-          <section>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>金额汇总</h2>
-              <p className={styles.sectionHint}>可填写自定义金额；留空时将根据自动计算结果填充。</p>
-            </div>
-            <div className={styles.fieldGrid}>
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>小计（按单价）</span>
                 <input
@@ -435,42 +798,12 @@ export default function InvoicePage() {
                 />
               </label>
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>费用包含</span>
-                <textarea
-                  className={styles.textControl}
-                  value={form.feeInclude}
-                  onChange={event => onChange('feeInclude', event.target.value)}
-                  placeholder="例如：方案策划、设计支持等"
-                  rows={3}
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>费用不含</span>
-                <textarea
-                  className={styles.textControl}
-                  value={form.feeExclude}
-                  onChange={event => onChange('feeExclude', event.target.value)}
-                  placeholder="例如：第三方采购费用"
-                  rows={3}
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>总计</span>
+                <span className={styles.fieldLabel}>总计金额</span>
                 <input
                   className={styles.textControl}
                   value={form.total}
                   onChange={event => onChange('total', event.target.value)}
-                  placeholder="示例：SGD 15,000.00"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>服务时间/备注</span>
-                <textarea
-                  className={styles.textControl}
-                  value={form.serviceDetailDate}
-                  onChange={event => onChange('serviceDetailDate', event.target.value)}
-                  placeholder="例如：服务周期 2024.06 - 2024.08"
-                  rows={2}
+                  placeholder="示例：SGD 12,000.00"
                 />
               </label>
             </div>
@@ -478,7 +811,7 @@ export default function InvoicePage() {
 
           <div className={styles.buttonRow}>
             <button type="submit" className={styles.primaryButton} disabled={isGenerating}>
-              {isGenerating ? '正在生成…' : '生成 DOCX 发票'}
+              {isGenerating ? '正在生…' : '生成 DOCX 发票'}
             </button>
           </div>
           {error ? <div className={styles.errorBanner}>{error}</div> : null}
@@ -492,14 +825,14 @@ export default function InvoicePage() {
 
           <div className={styles.previewGroup}>
             <section className={styles.previewSection}>
-              <h3 className={styles.previewSectionTitle}>基本信息</h3>
+              <h3 className={styles.previewSectionTitle}>开票信息</h3>
               <div className={styles.previewItem}>
                 <span className={styles.previewLabel}>客户名称</span>
                 <span className={styles.previewValue}>{form.clientName?.trim() || '—'}</span>
               </div>
               <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>联系方式</span>
-                <span className={styles.previewValue}>{form.contactInfo?.trim() || '—'}</span>
+                <span className={styles.previewLabel}>联络方式</span>
+                <span className={styles.previewValue}>{contactInfoDisplay}</span>
               </div>
               <div className={styles.previewItem}>
                 <span className={styles.previewLabel}>发票编号</span>
@@ -520,27 +853,58 @@ export default function InvoicePage() {
             </section>
 
             <section className={styles.previewSection}>
-              <h3 className={styles.previewSectionTitle}>项目负责人</h3>
-              <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>姓名</span>
-                <span className={styles.previewValue}>{form.projectLead_name?.trim() || '—'}</span>
-              </div>
-              <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>电话</span>
-                <span className={styles.previewValue}>{form.projectLead_phone?.trim() || '—'}</span>
-              </div>
-              <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>邮箱</span>
-                <span className={styles.previewValue}>{form.projectLead_email?.trim() || '—'}</span>
-              </div>
+              <h3 className={styles.previewSectionTitle}>收款信息</h3>
+              {bankPreview ? (
+                <>
+                  <div className={styles.previewItem}>
+                    <span className={styles.previewLabel}>银行</span>
+                    <span className={styles.previewValue}>{`${bankPreview.bankName}（${bankPreview.currency}）`}</span>
+                  </div>
+                  <div className={styles.previewItem}>
+                    <span className={styles.previewLabel}>账户名称</span>
+                    <span className={styles.previewValue}>{bankPreview.accountName}</span>
+                  </div>
+                  <div className={styles.previewItem}>
+                    <span className={styles.previewLabel}>账户号码</span>
+                    <span className={styles.previewValue}>{bankPreview.accountNumber}</span>
+                  </div>
+                  <div className={styles.previewItem}>
+                    <span className={styles.previewLabel}>SWIFT/BIC</span>
+                    <span className={styles.previewValue}>{bankPreview.swiftCode}</span>
+                  </div>
+                  <div className={styles.previewItem}>
+                    <span className={styles.previewLabel}>银行地址</span>
+                    <span className={styles.previewValue}>{bankPreview.bankAddress}</span>
+                  </div>
+                  <div className={styles.previewItem}>
+                    <span className={styles.previewLabel}>备注</span>
+                    <span className={styles.previewValue}>{bankPreview.remarks}</span>
+                  </div>
+                </>
+              ) : (
+                <div className={styles.previewItem}>
+                  <span className={styles.previewLabel}>银行</span>
+                  <span className={styles.previewValue}>待选择</span>
+                </div>
+              )}
             </section>
 
             <section className={styles.previewSection}>
-              <h3 className={styles.previewSectionTitle}>服务条目</h3>
+              <h3 className={styles.previewSectionTitle}>项目内容</h3>
+              {computed.projectBlocks.map((block, index) => (
+                <div key={index} className={styles.previewItem}>
+                  <span className={styles.previewLabel}>{block.title}</span>
+                  <span className={styles.previewValue}>{block.displayValue}</span>
+                </div>
+              ))}
+            </section>
+
+            <section className={styles.previewSection}>
+              <h3 className={styles.previewSectionTitle}>项目价格</h3>
               {previewItems.length ? (
                 previewItems.map((item, index) => (
                   <div key={index} className={styles.previewItem}>
-                    <span className={styles.previewLabel}>条目 {index + 1}</span>
+                    <span className={styles.previewLabel}>费用项目 {index + 1}</span>
                     <span className={styles.previewValue}>
                       {item.description}
                       {'\n'}数量：{item.qty || '—'}
@@ -551,14 +915,10 @@ export default function InvoicePage() {
                 ))
               ) : (
                 <div className={styles.previewItem}>
-                  <span className={styles.previewLabel}>条目</span>
-                  <span className={styles.previewValue}>暂未填写服务条目。</span>
+                  <span className={styles.previewLabel}>费用项目</span>
+                  <span className={styles.previewValue}>暂未填写。</span>
                 </div>
               )}
-            </section>
-
-            <section className={styles.previewSection}>
-              <h3 className={styles.previewSectionTitle}>金额汇总</h3>
               <div className={styles.previewItem}>
                 <span className={styles.previewLabel}>小计（单价）</span>
                 <span className={styles.previewValue}>{previewUnitSubtotalValue || '—'}</span>
@@ -568,20 +928,8 @@ export default function InvoicePage() {
                 <span className={styles.previewValue}>{previewAmountSubtotalValue || '—'}</span>
               </div>
               <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>费用包含</span>
-                <span className={styles.previewValue}>{form.feeInclude?.trim() || '—'}</span>
-              </div>
-              <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>费用不含</span>
-                <span className={styles.previewValue}>{form.feeExclude?.trim() || '—'}</span>
-              </div>
-              <div className={styles.previewItem}>
                 <span className={styles.previewLabel}>总计</span>
                 <span className={styles.previewValue}>{previewTotalValue || '—'}</span>
-              </div>
-              <div className={styles.previewItem}>
-                <span className={styles.previewLabel}>服务时间 / 备注</span>
-                <span className={styles.previewValue}>{form.serviceDetailDate?.trim() || '—'}</span>
               </div>
             </section>
           </div>
